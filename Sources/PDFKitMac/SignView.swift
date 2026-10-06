@@ -193,16 +193,16 @@ final class SignController: ObservableObject {
 
 // MARK: - Saving
 
-// Saves a new PDF. Pages with a signature are redrawn with the signature burned in;
-// the other pages are copied as they are.
-func writeSignedPdf(_ document: PDFDocument, to url: URL) -> Bool {
+// Saves a new PDF. Pages with things we added (signatures, pen, highlighter) are redrawn
+// with them burned in; the other pages are copied as they are.
+func writeMarkedPdf(_ document: PDFDocument, to url: URL) -> Bool {
     let output = PDFDocument()
     var helpers: [PDFDocument] = []   // must stay alive until "output" is saved
 
     for index in 0..<document.pageCount {
         guard let page = document.page(at: index) else { continue }
-        let signatures = page.annotations.compactMap { $0 as? SignatureAnnotation }
-        if signatures.isEmpty {
+        let added = page.annotations.filter { $0 is SignatureAnnotation || $0 is InkAnnotation }
+        if added.isEmpty {
             if let copy = page.copy() as? PDFPage { output.insert(copy, at: output.pageCount) }
             continue
         }
@@ -334,7 +334,7 @@ struct SignView: View {
         panel.nameFieldStringValue = "\(baseName(url.lastPathComponent))_signed.pdf"
         guard panel.runModal() == .OK, let target = panel.url else { return }
 
-        if writeSignedPdf(document, to: target) {
+        if writeMarkedPdf(document, to: target) {
             savedURL = target
         } else {
             message = "Could not save the PDF. Try another folder."

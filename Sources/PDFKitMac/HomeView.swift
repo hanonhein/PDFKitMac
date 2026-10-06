@@ -15,7 +15,7 @@ struct Feature: Identifiable {
 // The big tiles
 let mainFeatures = [
     Feature(icon: "doc.text", title: "View PDF", subtitle: "Read and zoom", color: .blue, opensPdf: { .viewer($0) }),
-    Feature(icon: "pencil", title: "Edit PDF", subtitle: "Draw, text, shapes", color: .orange),
+    Feature(icon: "pencil", title: "Edit PDF", subtitle: "Draw, text, shapes", color: .orange, opensPdf: { .edit($0) }),
     Feature(icon: "arrow.left.arrow.right", title: "Convert", subtitle: "To and from PDF", color: .teal),
     Feature(icon: "arrow.triangle.merge", title: "Merge PDFs", subtitle: "Combine into one", color: .teal, screen: .merge),
     Feature(icon: "arrow.triangle.branch", title: "Split PDF", subtitle: "Cut into parts", color: .orange, screen: .split),

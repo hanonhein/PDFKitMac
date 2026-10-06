@@ -25,6 +25,7 @@ enum Screen: Hashable {
     case split
     case pageTools
     case sign(URL)
+    case edit(URL)
     case comingSoon(String)
 }
 
@@ -46,6 +47,8 @@ struct ContentView: View {
                         PageToolsView(path: $path)
                     case .sign(let url):
                         SignView(url: url, path: $path)
+                    case .edit(let url):
+                        EditView(url: url, path: $path)
                     case .comingSoon(let name):
                         ComingSoonView(name: name)
                     }
