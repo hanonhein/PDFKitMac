@@ -34,6 +34,8 @@ enum Screen: Hashable {
     case pageNumbers
     case compress
     case grayscale
+    case pdfToText
+    case extractImages
     case comingSoon(String)
 }
 
@@ -73,6 +75,10 @@ struct ContentView: View {
                         CompressView(path: $path)
                     case .grayscale:
                         GrayscaleView(path: $path)
+                    case .pdfToText:
+                        PdfToTextView(path: $path)
+                    case .extractImages:
+                        ExtractImagesView(path: $path)
                     case .comingSoon(let name):
                         ComingSoonView(name: name)
                     }
