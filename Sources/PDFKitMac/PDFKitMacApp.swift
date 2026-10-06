@@ -37,6 +37,7 @@ enum Screen: Hashable {
     case pdfToText
     case extractImages
     case ocr
+    case fillForm
     case comingSoon(String)
 }
 
@@ -82,6 +83,8 @@ struct ContentView: View {
                         ExtractImagesView(path: $path)
                     case .ocr:
                         OcrView(path: $path)
+                    case .fillForm:
+                        FormView(path: $path)
                     case .comingSoon(let name):
                         ComingSoonView(name: name)
                     }

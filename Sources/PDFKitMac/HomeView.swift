@@ -32,7 +32,7 @@ let toolGroups: [(String, [Feature])] = [
         Feature(icon: "photo.on.rectangle", title: "Extract images", subtitle: "Save the pictures inside", color: .teal, screen: .extractImages)
     ]),
     ("Edit & secure", [
-        Feature(icon: "square.and.pencil", title: "Fill form", subtitle: "Type into PDF forms", color: .orange),
+        Feature(icon: "square.and.pencil", title: "Fill form", subtitle: "Type into PDF forms", color: .orange, screen: .fillForm),
         Feature(icon: "lock", title: "Protect PDF", subtitle: "Add a password", color: .orange, screen: .protect),
         Feature(icon: "lock.open", title: "Remove password", subtitle: "When you know it", color: .orange, screen: .unlock),
         Feature(icon: "drop", title: "Watermark", subtitle: "Text or logo on every page", color: .blue, screen: .watermark),
