@@ -33,11 +33,11 @@ let toolGroups: [(String, [Feature])] = [
     ]),
     ("Edit & secure", [
         Feature(icon: "square.and.pencil", title: "Fill form", subtitle: "Type into PDF forms", color: .orange),
-        Feature(icon: "lock", title: "Protect PDF", subtitle: "Add a password", color: .orange),
-        Feature(icon: "lock.open", title: "Remove password", subtitle: "When you know it", color: .orange),
+        Feature(icon: "lock", title: "Protect PDF", subtitle: "Add a password", color: .orange, screen: .protect),
+        Feature(icon: "lock.open", title: "Remove password", subtitle: "When you know it", color: .orange, screen: .unlock),
         Feature(icon: "drop", title: "Watermark", subtitle: "Text or logo on every page", color: .blue),
         Feature(icon: "list.number", title: "Page numbers", subtitle: "Number every page", color: .teal),
-        Feature(icon: "info.circle", title: "PDF info", subtitle: "Title, author and more", color: .blue)
+        Feature(icon: "info.circle", title: "PDF info", subtitle: "Title, author and more", color: .blue, screen: .pdfInfo)
     ]),
     ("Optimize", [
         Feature(icon: "arrow.down.right.and.arrow.up.left", title: "Compress PDF", subtitle: "Make the file smaller", color: .teal),

@@ -8,6 +8,7 @@ struct PickedPdf: Identifiable {
     let id = UUID()
     let name: String
     let document: PDFDocument
+    var password: String? = nil   // the password it was opened with, if it has one
 }
 
 // Opens a picked file. Returns an error message instead if it can't be used.
@@ -91,4 +92,123 @@ struct IconBadge: View {
             .frame(width: size, height: size)
             .background(color.background, in: RoundedRectangle(cornerRadius: size * 0.3))
     }
+}
+
+// MARK: - Choosing one PDF, which may have a password
+
+// Opens a PDF even if it has a password (the picker below then asks for it)
+func loadPdfAllowingPassword(_ url: URL) -> Result<PickedPdf, PdfLoadError> {
+    let hasAccess = url.startAccessingSecurityScopedResource()
+    defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
+    guard let document = PDFDocument(url: url) else {
+        return .failure(PdfLoadError("\(url.lastPathComponent) is not a valid PDF"))
+    }
+    return .success(PickedPdf(name: url.lastPathComponent, document: document))
+}
+
+// "1.4 MB"
+func fileSizeText(_ bytes: Int) -> String {
+    ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+}
+
+// A box that shows the chosen PDF (or a button to choose one). If the PDF has a password,
+// it asks for it right here; `file` is only set once the PDF can be read.
+struct PasswordPdfPicker: View {
+    @Binding var file: PickedPdf?
+    var onPick: () -> Void = {}
+    @State private var waiting: PickedPdf?   // picked, but still needs its password
+    @State private var password = ""
+    @State private var wrong = false
+    @State private var message: String?
+    @State private var showPicker = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                IconBadge(icon: (file ?? waiting)?.document.isEncrypted == true ? "lock.doc" : "doc.fill", color: .orange, size: 40)
+                if let shown = file ?? waiting {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(shown.name).lineLimit(1)
+                        Text(file == nil ? "This PDF has a password" :
+                                (shown.document.pageCount == 1 ? "1 page" : "\(shown.document.pageCount) pages"))
+                            .font(.subheadline).foregroundStyle(Theme.textSecondary)
+                    }
+                } else {
+                    Text("No PDF chosen. Click the button or drop a file here.").foregroundStyle(Theme.textSecondary)
+                }
+                Spacer()
+                Button(file == nil && waiting == nil ? "Choose PDF" : "Change") { showPicker = true }
+            }
+
+            if waiting != nil {
+                HStack {
+                    SecureField("Password of this PDF", text: $password)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 260)
+                        .onSubmit(unlock)
+                    Button("Open", action: unlock).disabled(password.isEmpty)
+                }
+                if wrong { Text("That password is not right. Try again.").font(.caption).foregroundStyle(Theme.orange) }
+            }
+            if let message { Text(message).font(.caption).foregroundStyle(Theme.orange) }
+        }
+        .padding(14)
+        .background(Theme.surfaceLow, in: RoundedRectangle(cornerRadius: 20))
+        .fileImporter(isPresented: $showPicker, allowedContentTypes: [.pdf]) { result in
+            if case .success(let url) = result { pick(url) }
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let url = urls.first(where: { $0.pathExtension.lowercased() == "pdf" }) else { return false }
+            pick(url)
+            return true
+        }
+    }
+
+    private func pick(_ url: URL) {
+        message = nil
+        wrong = false
+        password = ""
+        file = nil
+        waiting = nil
+        switch loadPdfAllowingPassword(url) {
+        case .success(let picked):
+            if picked.document.isLocked { waiting = picked } else { file = picked; onPick() }
+        case .failure(let error):
+            message = error.message
+        }
+    }
+
+    private func unlock() {
+        guard var picked = waiting else { return }
+        if picked.document.unlock(withPassword: password) {
+            picked.password = password
+            file = picked
+            waiting = nil
+            wrong = false
+            onPick()
+        } else {
+            wrong = true
+        }
+    }
+}
+
+enum SaveOutcome {
+    case saved(URL)
+    case cancelled
+    case failed
+}
+
+// Asks where to save a PDF, then saves it (with a password if given)
+func savePdfWithPanel(_ document: PDFDocument, suggestedName: String, password: String? = nil) -> SaveOutcome {
+    let panel = NSSavePanel()
+    panel.allowedContentTypes = [.pdf]
+    panel.nameFieldStringValue = suggestedName
+    guard panel.runModal() == .OK, let url = panel.url else { return .cancelled }
+    let ok: Bool
+    if let password {
+        ok = document.write(to: url, withOptions: [.userPasswordOption: password, .ownerPasswordOption: password])
+    } else {
+        ok = document.write(to: url)
+    }
+    return ok ? .saved(url) : .failed
 }

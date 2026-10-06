@@ -27,6 +27,9 @@ enum Screen: Hashable {
     case sign(URL)
     case edit(URL)
     case convert
+    case pdfInfo
+    case protect
+    case unlock
     case comingSoon(String)
 }
 
@@ -52,6 +55,12 @@ struct ContentView: View {
                         EditView(url: url, path: $path)
                     case .convert:
                         ConvertView(path: $path)
+                    case .pdfInfo:
+                        PdfInfoView(path: $path)
+                    case .protect:
+                        ProtectView(path: $path)
+                    case .unlock:
+                        UnlockView(path: $path)
                     case .comingSoon(let name):
                         ComingSoonView(name: name)
                     }
