@@ -1,6 +1,7 @@
 import SwiftUI
 import PDFKit
 import CoreImage
+import UniformTypeIdentifiers
 
 // Scan document: scan paper with your iPhone (Apple's "Continuity Camera"), or add photos,
 // then save them as a PDF, optionally black & white and searchable (like Android ScanScreen.kt).
@@ -15,7 +16,8 @@ final class ContinuityScanButton: NSButton, NSServicesMenuRequestor {
     override var acceptsFirstResponder: Bool { true }
 
     override func mouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(self)
+        let became = window?.makeFirstResponder(self) ?? false
+        scanLog("button clicked, ready to receive: \(became)")
         let menu = NSMenu()
         let item = NSMenuItem(title: "Import from iPhone or iPad", action: nil, keyEquivalent: "")
         item.identifier = NSMenuItem.importFromDeviceIdentifier   // macOS fills in "Scan Documents" here
@@ -23,9 +25,11 @@ final class ContinuityScanButton: NSButton, NSServicesMenuRequestor {
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 4), in: self)
     }
 
-    // "Yes, I can take pictures and PDFs"
+    // "Yes, I can take pictures and PDFs" (any picture type the iPhone may send)
     override func validRequestor(forSendType sendType: NSPasteboard.PasteboardType?, returnType: NSPasteboard.PasteboardType?) -> Any? {
-        if let returnType, sendType == nil, [.pdf, .tiff, .png, NSPasteboard.PasteboardType("public.jpeg")].contains(returnType) {
+        scanLog("asked: send \(sendType?.rawValue ?? "none"), return \(returnType?.rawValue ?? "none")")
+        if sendType == nil, let returnType, let type = UTType(returnType.rawValue) ?? UTType(filenameExtension: returnType.rawValue),
+           type.conforms(to: .image) || type.conforms(to: .pdf) {
             return self
         }
         return super.validRequestor(forSendType: sendType, returnType: returnType)
@@ -35,6 +39,7 @@ final class ContinuityScanButton: NSButton, NSServicesMenuRequestor {
 
     // The scan arrives here: a PDF (several pages) or a picture
     func readSelection(from pboard: NSPasteboard) -> Bool {
+        scanLog("scan arrived with types: \(pboard.types?.map(\.rawValue).joined(separator: ", ") ?? "none")")
         var pages: [CGImage] = []
         if let data = pboard.data(forType: .pdf), let pdf = PDFDocument(data: data) {
             for i in 0..<pdf.pageCount {
@@ -63,6 +68,17 @@ struct ScanWithIPhoneButton: NSViewRepresentable {
 
     func updateNSView(_ button: ContinuityScanButton, context: Context) {
         button.onScan = onScan
+    }
+}
+
+// A small log to find scanning problems: ~/Library/Logs/PDFKit-scan.log
+func scanLog(_ line: String) {
+    let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/PDFKit-scan.log")
+    let text = "\(Date()): \(line)\n"
+    if let handle = try? FileHandle(forWritingTo: url) {
+        handle.seekToEndOfFile(); handle.write(Data(text.utf8)); try? handle.close()
+    } else {
+        try? text.write(to: url, atomically: true, encoding: .utf8)
     }
 }
 
