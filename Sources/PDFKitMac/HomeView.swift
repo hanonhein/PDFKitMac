@@ -67,7 +67,7 @@ struct HomeView: View {
                 ForEach(toolGroups, id: \.0) { group in
                     Text(group.0)
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Theme.textSecondary)
                         .padding(.top, 20)
                         .padding(.bottom, 8)
 
@@ -97,9 +97,9 @@ struct HomeView: View {
         HStack(spacing: 14) {
             AppLogo(size: 48)
             VStack(alignment: .leading, spacing: 2) {
-                Text("PDF Kit").font(.title.bold())
+                Text("PDF Kit").font(.title.bold()).foregroundStyle(Theme.text)
                 Text("What would you like to do today?")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.textSecondary)
             }
         }
     }
@@ -116,27 +116,48 @@ struct HomeView: View {
     }
 }
 
-// A big coloured tile
+// A big tile: a card with a thin border and a coloured icon square (same as Android)
 struct FeatureCard: View {
     let feature: Feature
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 10) {
-                Image(systemName: feature.icon)
-                    .font(.system(size: 26))
+            VStack(alignment: .leading, spacing: 2) {
+                IconBadge(icon: feature.icon, color: feature.color, size: 48)
                 Spacer(minLength: 0)
-                Text(feature.title).font(.headline)
-                Text(feature.subtitle).font(.subheadline).opacity(0.8)
+                Text(feature.title)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(1)
+                Text(feature.subtitle)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
             }
-            .foregroundStyle(feature.color.foreground)
-            .frame(maxWidth: .infinity, minHeight: 120, alignment: .leading)
-            .padding(18)
-            .background(feature.color.background, in: RoundedRectangle(cornerRadius: 24))
-            .contentShape(RoundedRectangle(cornerRadius: 24))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 118)
+            .padding(16)
+            .background(Theme.surfaceLow, in: RoundedRectangle(cornerRadius: 20))
+            .overlay(RoundedRectangle(cornerRadius: 20).stroke(Theme.outlineVariant, lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 20))
         }
         .buttonStyle(.plain)
+    }
+}
+
+// A rounded square with a coloured icon (same as Android IconBadge)
+struct IconBadge: View {
+    let icon: String
+    let color: TileColor
+    let size: CGFloat
+
+    var body: some View {
+        Image(systemName: icon)
+            .font(.system(size: size * 0.42))
+            .foregroundStyle(color.foreground)
+            .frame(width: size, height: size)
+            .background(color.background, in: RoundedRectangle(cornerRadius: size * 0.3))
     }
 }
 
@@ -148,17 +169,13 @@ struct ToolRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 14) {
-                Image(systemName: feature.icon)
-                    .font(.system(size: 17))
-                    .foregroundStyle(feature.color.foreground)
-                    .frame(width: 40, height: 40)
-                    .background(feature.color.background, in: RoundedRectangle(cornerRadius: 12))
+                IconBadge(icon: feature.icon, color: feature.color, size: 40)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(feature.title)
-                    Text(feature.subtitle).font(.subheadline).foregroundStyle(.secondary)
+                    Text(feature.title).foregroundStyle(Theme.text)
+                    Text(feature.subtitle).font(.subheadline).foregroundStyle(Theme.textSecondary)
                 }
                 Spacer()
-                Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                Image(systemName: "chevron.right").foregroundStyle(Theme.textSecondary)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
@@ -168,18 +185,21 @@ struct ToolRow: View {
     }
 }
 
-// Simple stand-in for the app logo (the real icon comes in a later step)
+// The PDF Kit logo (same picture as Android, web and Windows), with rounded corners
 struct AppLogo: View {
     let size: CGFloat
+    private static let image = Bundle.main.url(forResource: "pdfkit-icon", withExtension: "png")
+        .flatMap { NSImage(contentsOf: $0) }
 
     var body: some View {
-        RoundedRectangle(cornerRadius: size * 0.28)
-            .fill(Theme.blue)
-            .frame(width: size, height: size)
-            .overlay(
-                Image(systemName: "doc.richtext")
-                    .font(.system(size: size * 0.5))
-                    .foregroundStyle(.white)
-            )
+        Group {
+            if let image = Self.image {
+                Image(nsImage: image).resizable()
+            } else {
+                Theme.blue   // only if the picture is missing
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: size * 0.28))
     }
 }

@@ -17,6 +17,11 @@ enum Theme {
 
     static let background = adaptive(light: 0xF8F9FC, dark: 0x111318)
     static let surfaceLow = adaptive(light: 0xF2F3F7, dark: 0x1A1C20)
+    static let outlineVariant = adaptive(light: 0xC5C6D0, dark: 0x44474F)
+
+    // Text
+    static let text = adaptive(light: 0x1A1C20, dark: 0xE2E2E9)
+    static let textSecondary = adaptive(light: 0x44474F, dark: 0xC5C6D0)
 
     // Makes a colour that switches by itself when the Mac is in dark mode
     private static func adaptive(light: UInt32, dark: UInt32) -> Color {
