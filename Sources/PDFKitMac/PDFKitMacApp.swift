@@ -30,6 +30,10 @@ enum Screen: Hashable {
     case pdfInfo
     case protect
     case unlock
+    case watermark
+    case pageNumbers
+    case compress
+    case grayscale
     case comingSoon(String)
 }
 
@@ -61,6 +65,14 @@ struct ContentView: View {
                         ProtectView(path: $path)
                     case .unlock:
                         UnlockView(path: $path)
+                    case .watermark:
+                        WatermarkView(path: $path)
+                    case .pageNumbers:
+                        PageNumbersView(path: $path)
+                    case .compress:
+                        CompressView(path: $path)
+                    case .grayscale:
+                        GrayscaleView(path: $path)
                     case .comingSoon(let name):
                         ComingSoonView(name: name)
                     }
