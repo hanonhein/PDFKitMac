@@ -32,7 +32,7 @@ enum ConvertFrom: String, CaseIterable, Identifiable {
         }
     }
 
-    var isReady: Bool { [.pdf, .images, .word, .rtf, .text].contains(self) }
+    var isReady: Bool { [.pdf, .images, .word, .excel, .rtf, .text].contains(self) }
 }
 
 enum PdfTarget: String, CaseIterable, Identifiable {
@@ -177,7 +177,7 @@ struct ConvertView: View {
                 case .pdf: PdfToFormat(target: target, path: $path)
                 case .images: ImagesToPdf(path: $path)
                 case .text: TextToPdf(path: $path)
-                case .rtf, .word: FileToPdf(kind: from, path: $path).id(from)
+                case .rtf, .word, .excel: FileToPdf(kind: from, path: $path).id(from)
                 default: EmptyView()
                 }
             }
@@ -595,6 +595,7 @@ private struct FileToPdf: View {
         switch kind {
         case .rtf: "Turns a Rich Text file (.rtf) into a PDF. Paragraphs, bold, italic and sizes are kept."
         case .word: "Turns a Word file (.docx or .doc) into a PDF. Headings, bold and italic, lists and page breaks are kept."
+        case .excel: "Turns an Excel file (.xlsx) into a PDF. Every sheet becomes a table; wide sheets are fitted on sideways pages."
         default: ""
         }
     }
@@ -603,6 +604,7 @@ private struct FileToPdf: View {
         switch kind {
         case .rtf: [.rtf]
         case .word: [UTType(filenameExtension: "docx"), UTType(filenameExtension: "doc")].compactMap { $0 }
+        case .excel: [UTType(filenameExtension: "xlsx")].compactMap { $0 }
         default: []
         }
     }
@@ -645,15 +647,27 @@ private struct FileToPdf: View {
         guard let file else { return }
         message = nil
         savedURL = nil
-        guard let content = readStyledFile(file) else {
-            message = "This file could not be read."
-            return
+        // Read first, so problems show before asking where to save
+        var sheets: [Sheet] = []
+        var content: NSAttributedString?
+        if kind == .excel {
+            do { sheets = try readExcel(file) } catch {
+                message = (error as? OfficeError)?.message ?? "This file could not be read."
+                return
+            }
+        } else {
+            content = readStyledFile(file)
+            if content == nil {
+                message = "This file could not be read."
+                return
+            }
         }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.pdf]
         panel.nameFieldStringValue = "\(baseName(file.lastPathComponent)).pdf"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        if attributedTextToPdf(content, to: url) {
+        let ok = kind == .excel ? excelToPdf(sheets, to: url) : attributedTextToPdf(content!, to: url)
+        if ok {
             savedURL = url
         } else {
             message = "Could not save the PDF. Try another folder."
