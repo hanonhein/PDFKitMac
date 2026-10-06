@@ -27,7 +27,7 @@ let mainFeatures = [
 let toolGroups: [(String, [Feature])] = [
     ("Scan & text", [
         Feature(icon: "doc.viewfinder", title: "Scan document", subtitle: "Camera to PDF, auto crop", color: .blue),
-        Feature(icon: "character.bubble", title: "Recognize text (OCR)", subtitle: "Make scans searchable", color: .teal),
+        Feature(icon: "character.bubble", title: "Recognize text (OCR)", subtitle: "Make scans searchable", color: .teal, screen: .ocr),
         Feature(icon: "doc.plaintext", title: "PDF to text", subtitle: "Save all words as .txt", color: .teal, screen: .pdfToText),
         Feature(icon: "photo.on.rectangle", title: "Extract images", subtitle: "Save the pictures inside", color: .teal, screen: .extractImages)
     ]),
