@@ -198,7 +198,55 @@ func readStyledFile(_ url: URL) -> NSAttributedString? {
     case "doc": type = .docFormat
     default: type = .rtf
     }
-    return try? NSAttributedString(url: url, options: [.documentType: type], documentAttributes: nil)
+    guard let text = try? NSAttributedString(url: url, options: [.documentType: type], documentAttributes: nil) else { return nil }
+    if type == .officeOpenXML {
+        let fixed = NSMutableAttributedString(attributedString: text)
+        restoreCellColors(from: url, in: fixed)
+        return fixed
+    }
+    return text
+}
+
+// The Mac's Word reader keeps tables but forgets the cells' background colours
+// (so white text on a blue header becomes invisible). We read the colours from the
+// Word file ourselves and give them back to the cells, in the same order.
+func restoreCellColors(from docx: URL, in text: NSMutableAttributedString) {
+    // A .docx is a zip; the text is in word/document.xml
+    let unzip = Process()
+    unzip.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+    unzip.arguments = ["-p", docx.path, "word/document.xml"]
+    let pipe = Pipe()
+    unzip.standardOutput = pipe
+    unzip.standardError = FileHandle.nullDevice
+    guard (try? unzip.run()) != nil else { return }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    unzip.waitUntilExit()
+    guard let xml = try? XMLDocument(data: data),
+          let cells = try? xml.nodes(forXPath: "//*[local-name()='tc']") else { return }
+
+    // Each cell's fill colour, like "2E75B6" (nil = no colour)
+    let fills: [NSColor?] = cells.map { cell in
+        guard let shading = try? cell.nodes(forXPath: "./*[local-name()='tcPr']/*[local-name()='shd']").first as? XMLElement,
+              let fill = shading.attributes?.first(where: { $0.localName == "fill" })?.stringValue,
+              fill.count == 6, let value = UInt32(fill, radix: 16) else { return nil }
+        return NSColor(srgbRed: CGFloat((value >> 16) & 0xFF) / 255, green: CGFloat((value >> 8) & 0xFF) / 255,
+                       blue: CGFloat(value & 0xFF) / 255, alpha: 1)
+    }
+
+    // The table cells the Mac made, in the order they appear
+    var blocks: [NSTextTableBlock] = []
+    var seen = Set<ObjectIdentifier>()
+    text.enumerateAttribute(.paragraphStyle, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+        for case let block as NSTextTableBlock in (value as? NSParagraphStyle)?.textBlocks ?? [] {
+            if seen.insert(ObjectIdentifier(block)).inserted { blocks.append(block) }
+        }
+    }
+
+    // Only when every cell matches up; otherwise colours could land on the wrong cells
+    guard blocks.count == fills.count else { return }
+    for (block, fill) in zip(blocks, fills) {
+        if let fill { block.backgroundColor = fill }
+    }
 }
 
 // The words of the PDF as a Word document: one paragraph per paragraph, a page break between pages
