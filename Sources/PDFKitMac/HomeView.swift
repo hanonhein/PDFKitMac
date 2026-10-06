@@ -16,7 +16,7 @@ struct Feature: Identifiable {
 let mainFeatures = [
     Feature(icon: "doc.text", title: "View PDF", subtitle: "Read and zoom", color: .blue, opensPdf: { .viewer($0) }),
     Feature(icon: "pencil", title: "Edit PDF", subtitle: "Draw, text, shapes", color: .orange, opensPdf: { .edit($0) }),
-    Feature(icon: "arrow.left.arrow.right", title: "Convert", subtitle: "To and from PDF", color: .teal),
+    Feature(icon: "arrow.left.arrow.right", title: "Convert", subtitle: "To and from PDF", color: .teal, screen: .convert),
     Feature(icon: "arrow.triangle.merge", title: "Merge PDFs", subtitle: "Combine into one", color: .teal, screen: .merge),
     Feature(icon: "arrow.triangle.branch", title: "Split PDF", subtitle: "Cut into parts", color: .orange, screen: .split),
     Feature(icon: "square.grid.2x2", title: "Page Tools", subtitle: "Rotate, sort, delete", color: .blue, screen: .pageTools),
@@ -143,21 +143,6 @@ struct FeatureCard: View {
             .contentShape(RoundedRectangle(cornerRadius: 20))
         }
         .buttonStyle(.plain)
-    }
-}
-
-// A rounded square with a coloured icon (same as Android IconBadge)
-struct IconBadge: View {
-    let icon: String
-    let color: TileColor
-    let size: CGFloat
-
-    var body: some View {
-        Image(systemName: icon)
-            .font(.system(size: size * 0.42))
-            .foregroundStyle(color.foreground)
-            .frame(width: size, height: size)
-            .background(color.background, in: RoundedRectangle(cornerRadius: size * 0.3))
     }
 }
 

@@ -225,14 +225,3 @@ func parseRanges(_ text: String, pageCount: Int) -> [ClosedRange<Int>]? {
     }
     return result
 }
-
-// "report_page1.pdf", or "report_page1 (2).pdf" if that name is already taken
-func freeFileURL(in folder: URL, name: String, ext: String) -> URL {
-    var url = folder.appendingPathComponent("\(name).\(ext)")
-    var number = 2
-    while FileManager.default.fileExists(atPath: url.path) {
-        url = folder.appendingPathComponent("\(name) (\(number)).\(ext)")
-        number += 1
-    }
-    return url
-}

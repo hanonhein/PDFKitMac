@@ -274,14 +274,14 @@ func resized(_ original: CGRect, startDistance: CGFloat, to p: CGPoint) -> CGRec
 }
 
 // Big photos are made smaller (longest side 1600 pixels), so the saved PDF doesn't get huge
-func loadPicture(from url: URL) -> NSImage? {
+func loadPicture(from url: URL, maxPixels: Int = 1600) -> NSImage? {
     let hasAccess = url.startAccessingSecurityScopedResource()
     defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
     guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
           let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, [
               kCGImageSourceCreateThumbnailFromImageAlways: true,
               kCGImageSourceCreateThumbnailWithTransform: true,   // photos from phones stay the right way up
-              kCGImageSourceThumbnailMaxPixelSize: 1600
+              kCGImageSourceThumbnailMaxPixelSize: maxPixels
           ] as CFDictionary) else { return nil }
     return NSImage(cgImage: cg, size: CGSize(width: cg.width, height: cg.height))
 }

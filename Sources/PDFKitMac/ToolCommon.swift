@@ -66,3 +66,29 @@ struct SavedBanner: View {
         .background(Theme.tealContainer.opacity(0.5), in: RoundedRectangle(cornerRadius: 14))
     }
 }
+
+// "report_page1.pdf", or "report_page1 (2).pdf" if that name is already taken
+func freeFileURL(in folder: URL, name: String, ext: String) -> URL {
+    var url = folder.appendingPathComponent("\(name).\(ext)")
+    var number = 2
+    while FileManager.default.fileExists(atPath: url.path) {
+        url = folder.appendingPathComponent("\(name) (\(number)).\(ext)")
+        number += 1
+    }
+    return url
+}
+
+// A rounded square with a coloured icon (same as Android IconBadge)
+struct IconBadge: View {
+    let icon: String
+    let color: TileColor
+    let size: CGFloat
+
+    var body: some View {
+        Image(systemName: icon)
+            .font(.system(size: size * 0.42))
+            .foregroundStyle(color.foreground)
+            .frame(width: size, height: size)
+            .background(color.background, in: RoundedRectangle(cornerRadius: size * 0.3))
+    }
+}
