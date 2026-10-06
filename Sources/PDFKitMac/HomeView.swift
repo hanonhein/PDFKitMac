@@ -8,19 +8,19 @@ struct Feature: Identifiable {
     let title: String
     let subtitle: String
     let color: TileColor
-    var opensPdf = false   // true = pick a PDF and open it in the viewer
+    var opensPdf: ((URL) -> Screen)?   // pick a PDF first, then go to this screen
     var screen: Screen?    // the tool screen to go to (nil = coming soon)
 }
 
 // The big tiles
 let mainFeatures = [
-    Feature(icon: "doc.text", title: "View PDF", subtitle: "Read and zoom", color: .blue, opensPdf: true),
+    Feature(icon: "doc.text", title: "View PDF", subtitle: "Read and zoom", color: .blue, opensPdf: { .viewer($0) }),
     Feature(icon: "pencil", title: "Edit PDF", subtitle: "Draw, text, shapes", color: .orange),
     Feature(icon: "arrow.left.arrow.right", title: "Convert", subtitle: "To and from PDF", color: .teal),
     Feature(icon: "arrow.triangle.merge", title: "Merge PDFs", subtitle: "Combine into one", color: .teal, screen: .merge),
     Feature(icon: "arrow.triangle.branch", title: "Split PDF", subtitle: "Cut into parts", color: .orange, screen: .split),
     Feature(icon: "square.grid.2x2", title: "Page Tools", subtitle: "Rotate, sort, delete", color: .blue, screen: .pageTools),
-    Feature(icon: "signature", title: "Sign PDF", subtitle: "Add your signature", color: .orange)
+    Feature(icon: "signature", title: "Sign PDF", subtitle: "Add your signature", color: .orange, opensPdf: { .sign($0) })
 ]
 
 // The smaller tools, in groups
@@ -48,6 +48,7 @@ let toolGroups: [(String, [Feature])] = [
 struct HomeView: View {
     @Binding var path: [Screen]
     @State private var showPicker = false
+    @State private var afterPick: ((URL) -> Screen)?
 
     private let columns = [GridItem(.adaptive(minimum: 200), spacing: 12)]
 
@@ -86,8 +87,8 @@ struct HomeView: View {
         .background(Theme.background)
         .navigationTitle("PDF Kit")
         .fileImporter(isPresented: $showPicker, allowedContentTypes: [.pdf]) { result in
-            if case .success(let url) = result {
-                path.append(.viewer(url))
+            if case .success(let url) = result, let afterPick {
+                path.append(afterPick(url))
             }
         }
     }
@@ -104,7 +105,8 @@ struct HomeView: View {
     }
 
     private func open(_ feature: Feature) {
-        if feature.opensPdf {
+        if let opensPdf = feature.opensPdf {
+            afterPick = opensPdf
             showPicker = true
         } else if let screen = feature.screen {
             path.append(screen)
