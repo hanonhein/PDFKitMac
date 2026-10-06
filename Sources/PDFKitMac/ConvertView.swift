@@ -79,7 +79,7 @@ enum PdfTarget: String, CaseIterable, Identifiable {
         }
     }
 
-    var isReady: Bool { [.word, .jpg, .png, .txt, .rtf, .html, .xml].contains(self) }
+    var isReady: Bool { true }
 
     var fileExtension: String {
         switch self {
@@ -282,6 +282,47 @@ private struct PdfToFormat: View {
         .onChange(of: target) { saved = nil; message = nil }
     }
 
+    // PDF -> Excel (one sheet per page) or PowerPoint (one slide per page, as a picture)
+    private func makeOfficeFile(_ file: PickedPdf, base: String) {
+        let document = file.document
+        let isExcel = target == .excel
+        if isExcel && readPages(document).allSatisfy({ $0.paragraphs().isEmpty }) {
+            message = "No words were found. If this is a scanned PDF, use \"Recognize text (OCR)\" first."
+            return
+        }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: target.fileExtension) ?? .data]
+        panel.nameFieldStringValue = "\(base).\(target.fileExtension)"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        busy = "Converting…"
+        Task { @MainActor in
+            let ok: Bool
+            if isExcel {
+                let sheets = (0..<document.pageCount).compactMap { document.page(at: $0) }.map(pageRows)
+                ok = writeXlsx(sheets, to: url)
+            } else {
+                let size = slideSize(for: document)
+                var slides: [Data] = []
+                for i in 0..<document.pageCount {
+                    busy = "Making slide \(i + 1) of \(document.pageCount)…"
+                    await Task.yield()   // lets the screen show the progress
+                    if let page = document.page(at: i), let image = renderPage(page, width: size.pictureWidth),
+                       let jpeg = NSBitmapImageRep(cgImage: image).representation(using: .jpeg, properties: [.compressionFactor: 0.88]) {
+                        slides.append(jpeg)
+                    }
+                }
+                ok = writePptx(slides, slideWidth: size.width, slideHeight: size.height, to: url)
+            }
+            busy = nil
+            if ok {
+                saved = ("Saved \(url.lastPathComponent)", url, url)
+            } else {
+                message = "Could not save the file. Try another folder."
+            }
+        }
+    }
+
     private func pick(_ url: URL) {
         message = nil
         saved = nil
@@ -296,6 +337,11 @@ private struct PdfToFormat: View {
         message = nil
         saved = nil
         let base = baseName(file.name)
+
+        if target == .excel || target == .powerpoint {
+            makeOfficeFile(file, base: base)
+            return
+        }
 
         if target != .jpg && target != .png {
             // Word-based files: the words of every page
