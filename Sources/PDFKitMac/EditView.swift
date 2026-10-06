@@ -4,33 +4,42 @@ import PDFKit
 // MARK: - Tools and colours (same as Android)
 
 enum EditTool: String, CaseIterable, Identifiable {
-    case scroll, pen, highlight, eraser
+    case scroll, select, pen, highlight, eraser, text, shape
     var id: Self { self }
 
     var label: String {
         switch self {
         case .scroll: "Scroll"
+        case .select: "Select"
         case .pen: "Pen"
         case .highlight: "Highlight"
         case .eraser: "Eraser"
+        case .text: "Text"
+        case .shape: "Shapes"
         }
     }
 
     var icon: String {
         switch self {
         case .scroll: "hand.raised"
+        case .select: "arrow.up.and.down.and.arrow.left.and.right"
         case .pen: "pencil.tip"
         case .highlight: "highlighter"
         case .eraser: "eraser"
+        case .text: "textformat"
+        case .shape: "square.on.circle"
         }
     }
 
     var hint: String {
         switch self {
         case .scroll: "Scroll and zoom the pages. Pick a tool to edit."
+        case .select: "Click something you added to select it. Drag to move it. Delete key removes it."
         case .pen: "Drag on the page to draw."
         case .highlight: "Drag over text to highlight it."
-        case .eraser: "Click or drag over a line to remove it."
+        case .eraser: "Click or drag over anything you added to remove it."
+        case .text: "Click on the page to add text. Click existing text to change it."
+        case .shape: "Drag on the page to draw the shape."
         }
     }
 }
@@ -50,75 +59,62 @@ let penColors: [NSColor] = [
 
 let highlightColors: [NSColor] = [0xFFEB3B, 0x69F0AE, 0xFF80AB, 0x40C4FF, 0xFFAB40, 0xB388FF].map(hex)
 
-// MARK: - A pen or highlighter line on the page
-
-final class InkAnnotation: PDFAnnotation {
-    var points: [CGPoint] = []   // in page units
-    var inkColor: NSColor = .black
-    var lineWidth: CGFloat = 1
-    var isHighlight = false
-
-    // Keeps the annotation's box just around the line (PDFKit only redraws inside it)
-    func updateBounds() {
-        guard let first = points.first else { return }
-        var box = CGRect(origin: first, size: .zero)
-        points.forEach { box = box.union(CGRect(origin: $0, size: .zero)) }
-        bounds = box.insetBy(dx: -lineWidth, dy: -lineWidth)
-    }
-
-    override func draw(with box: PDFDisplayBox, in context: CGContext) {
-        guard points.count > 0 else { return }
-        context.saveGState()
-        page?.transform(context, for: box)   // line up with the page (see SignatureAnnotation)
-        let color = isHighlight ? inkColor.withAlphaComponent(0.4) : inkColor
-        context.setStrokeColor(color.cgColor)
-        context.setLineWidth(lineWidth)
-        context.setLineCap(isHighlight ? .butt : .round)
-        context.setLineJoin(.round)
-        if isHighlight { context.setBlendMode(.multiply) }   // text under it stays readable
-        context.move(to: points[0])
-        if points.count == 1 {
-            context.addLine(to: CGPoint(x: points[0].x + 0.1, y: points[0].y))   // a single click makes a dot
-        }
-        points.dropFirst().forEach { context.addLine(to: $0) }
-        context.strokePath()
-        context.restoreGState()
-    }
-
-    // Is this page point on (or very near) the line?
-    func isNear(_ p: CGPoint, tolerance: CGFloat) -> Bool {
-        let limit = lineWidth / 2 + tolerance
-        if points.count == 1 { return hypot(points[0].x - p.x, points[0].y - p.y) <= limit }
-        for i in 1..<points.count where distance(p, points[i - 1], points[i]) <= limit { return true }
-        return false
-    }
-
-    private func distance(_ p: CGPoint, _ a: CGPoint, _ b: CGPoint) -> CGFloat {
-        let dx = b.x - a.x, dy = b.y - a.y
-        let lengthSquared = dx * dx + dy * dy
-        let t = lengthSquared == 0 ? 0 : max(0, min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lengthSquared))
-        return hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
-    }
+// What the Text tool asks the screen for: type new text, or change existing text
+struct TextRequest: Identifiable {
+    let id = UUID()
+    let initial: String
+    let isNew: Bool
+    let onDone: (String?) -> Void   // nil = delete (for existing text) or cancel
 }
 
-// MARK: - The PDF view you draw on
+// MARK: - The PDF view you edit on
 
 final class EditPDFView: PDFView {
-    var tool = EditTool.scroll { didSet { window?.invalidateCursorRects(for: self) } }
-    var penColor = hex(0xD32F2F)
+    var tool = EditTool.scroll {
+        didSet {
+            if tool != .select { picked = nil }
+            window?.invalidateCursorRects(for: self)
+        }
+    }
+    var color = hex(0xD32F2F)        // pen, shapes and text
     var penSize: CGFloat = 3          // 1...12, like Android
     var highlightColor = highlightColors[0]
     var highlightSize: CGFloat = 4    // 1...12
+    var textSize: CGFloat = 4         // 1...12
+    var shapeKind = ShapeKind.rectangle
     var onChange: () -> Void = {}
+    var onTextRequest: (TextRequest) -> Void = { _ in }
 
-    private var current: InkAnnotation?
+    private var drawing: MarkAnnotation?   // the pen line or shape being drawn right now
+    private var dragLast: CGPoint?          // Select: where the mouse was
+    private var dragTotal = CGVector.zero   // Select: how far it moved, for undo
     private var undoSteps: [() -> Void] = []
     var canUndo: Bool { !undoSteps.isEmpty }
+
+    private(set) var picked: MarkAnnotation? {
+        didSet {
+            if oldValue !== picked { oldValue?.isPicked = false }
+            picked?.isPicked = true
+            refresh()
+        }
+    }
 
     override var acceptsFirstResponder: Bool { true }
 
     override func resetCursorRects() {
-        if tool == .scroll { super.resetCursorRects() } else { addCursorRect(bounds, cursor: .crosshair) }
+        switch tool {
+        case .scroll: super.resetCursorRects()
+        case .select: addCursorRect(bounds, cursor: .openHand)
+        case .text: addCursorRect(bounds, cursor: .iBeam)
+        default: addCursorRect(bounds, cursor: .crosshair)
+        }
+    }
+
+    // How close (in page units) counts as "on it"
+    private var tolerance: CGFloat { 6 / max(scaleFactor, 0.1) }
+
+    private func topMark(at p: CGPoint, on page: PDFPage) -> MarkAnnotation? {
+        page.annotations.reversed().compactMap { $0 as? MarkAnnotation }.first { $0.isNear(p, tolerance: tolerance) }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -127,22 +123,50 @@ final class EditPDFView: PDFView {
         let point = convert(event.locationInWindow, from: nil)
         guard let page = page(for: point, nearest: true) else { return }
         let p = convert(point, to: page)
+        let width = seenWidth(of: page)
 
         switch tool {
         case .pen, .highlight:
-            // Sizes are parts of the page width as seen, so they look the same on any page (Android does this too)
-            let box = page.bounds(for: .cropBox)
-            let seenWidth = page.rotation % 180 == 0 ? box.width : box.height
+            // Sizes are parts of the seen page width, so they look the same on any page (like Android)
             let ink = InkAnnotation(bounds: CGRect(origin: p, size: .zero), forType: .ink, withProperties: nil)
             ink.isHighlight = tool == .highlight
-            ink.inkColor = tool == .highlight ? highlightColor : penColor
-            ink.lineWidth = tool == .highlight ? seenWidth * highlightSize * 0.006 : seenWidth * penSize * 0.001
+            ink.inkColor = tool == .highlight ? highlightColor : color
+            ink.lineWidth = tool == .highlight ? width * highlightSize * 0.006 : width * penSize * 0.001
             ink.points = [p]
             ink.updateBounds()
             page.addAnnotation(ink)
-            current = ink
+            drawing = ink
+
+        case .shape:
+            let shape = ShapeAnnotation(bounds: CGRect(origin: p, size: .zero), forType: .square, withProperties: nil)
+            shape.kind = shapeKind
+            shape.inkColor = color
+            shape.lineWidth = width * penSize * 0.001
+            shape.start = p
+            shape.end = p
+            shape.updateBounds()
+            page.addAnnotation(shape)
+            drawing = shape
+
         case .eraser:
             erase(at: p, on: page)
+
+        case .text:
+            if let existing = topMark(at: p, on: page) as? TextAnnotation {
+                editText(existing)
+            } else {
+                newText(at: p, on: page)
+            }
+
+        case .select:
+            picked = topMark(at: p, on: page)
+            if let text = picked as? TextAnnotation, event.clickCount == 2 {
+                editText(text)
+            } else if picked != nil {
+                dragLast = p
+                dragTotal = .zero
+            }
+
         case .scroll:
             break
         }
@@ -151,49 +175,117 @@ final class EditPDFView: PDFView {
     override func mouseDragged(with event: NSEvent) {
         guard tool != .scroll else { super.mouseDragged(with: event); return }
         let point = convert(event.locationInWindow, from: nil)
-        if let current, let page = current.page {
-            current.points.append(convert(point, to: page))
-            current.updateBounds()
-            refresh()
+
+        if let ink = drawing as? InkAnnotation, let page = ink.page {
+            ink.points.append(convert(point, to: page))
+            ink.updateBounds()
+        } else if let shape = drawing as? ShapeAnnotation, let page = shape.page {
+            shape.end = convert(point, to: page)
+            shape.updateBounds()
         } else if tool == .eraser, let page = page(for: point, nearest: true) {
             erase(at: convert(point, to: page), on: page)
+        } else if tool == .select, let mark = picked, let page = mark.page, let last = dragLast {
+            let p = convert(point, to: page)
+            mark.moveBy(dx: p.x - last.x, dy: p.y - last.y)
+            dragTotal.dx += p.x - last.x
+            dragTotal.dy += p.y - last.y
+            dragLast = p
         }
+        refresh()
     }
 
     override func mouseUp(with event: NSEvent) {
         guard tool != .scroll else { super.mouseUp(with: event); return }
-        if let line = current, let page = line.page {
-            undoSteps.append { page.removeAnnotation(line) }
-            onChange()
+        if let mark = drawing, let page = mark.page {
+            // A shape needs a little drag; a plain click doesn't make one
+            if let shape = mark as? ShapeAnnotation, hypot(shape.end.x - shape.start.x, shape.end.y - shape.start.y) < tolerance {
+                page.removeAnnotation(shape)
+            } else {
+                undoSteps.append { page.removeAnnotation(mark) }
+            }
         }
-        current = nil
+        if let mark = picked, dragLast != nil, dragTotal != .zero {
+            let back = dragTotal
+            undoSteps.append { mark.moveBy(dx: -back.dx, dy: -back.dy) }
+        }
+        drawing = nil
+        dragLast = nil
         refresh()
+        onChange()
     }
 
     override func keyDown(with event: NSEvent) {
-        if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "z" {
-            undo()
+        // Delete or Backspace removes the selected mark
+        if let mark = picked, event.keyCode == 51 || event.keyCode == 117 {
+            remove(mark)
         } else {
             super.keyDown(with: event)
         }
     }
 
+    // MARK: Actions
+
     private func erase(at p: CGPoint, on page: PDFPage) {
-        let tolerance = 6 / max(scaleFactor, 0.1)
-        for case let line as InkAnnotation in page.annotations where line.isNear(p, tolerance: tolerance) {
-            page.removeAnnotation(line)
-            undoSteps.append { page.addAnnotation(line) }
+        for case let mark as MarkAnnotation in page.annotations where mark.isNear(p, tolerance: tolerance) {
+            page.removeAnnotation(mark)
+            undoSteps.append { page.addAnnotation(mark) }
         }
+        onChange()
+    }
+
+    func remove(_ mark: MarkAnnotation) {
+        guard let page = mark.page else { return }
+        if picked === mark { picked = nil }
+        mark.isPicked = false
+        page.removeAnnotation(mark)
+        undoSteps.append { page.addAnnotation(mark) }
         refresh()
         onChange()
     }
 
+    func removePicked() {
+        if let picked { remove(picked) }
+    }
+
+    private func newText(at p: CGPoint, on page: PDFPage) {
+        let size = seenWidth(of: page) * (0.01 + textSize * 0.004)   // same as Android
+        let color = self.color
+        onTextRequest(TextRequest(initial: "", isNew: true) { [weak self] typed in
+            guard let self, let typed, !typed.isEmpty else { return }
+            let mark = TextAnnotation(bounds: CGRect(origin: p, size: .zero), forType: .freeText, withProperties: nil)
+            mark.text = typed
+            mark.inkColor = color
+            mark.fontSize = size
+            page.addAnnotation(mark)
+            mark.fitText(topLeft: p)
+            self.undoSteps.append { page.removeAnnotation(mark) }
+            self.refresh()
+            self.onChange()
+        })
+    }
+
+    private func editText(_ mark: TextAnnotation) {
+        onTextRequest(TextRequest(initial: mark.text, isNew: false) { [weak self] typed in
+            guard let self else { return }
+            guard let typed, !typed.isEmpty else { self.remove(mark); return }
+            let old = mark.text
+            mark.text = typed
+            mark.fitText()
+            self.undoSteps.append { mark.text = old; mark.fitText() }
+            self.refresh()
+            self.onChange()
+        })
+    }
+
     func undo() {
         guard let step = undoSteps.popLast() else { return }
+        picked = nil
         step()
         refresh()
         onChange()
     }
+
+    func unpick() { picked = nil }
 
     private func refresh() {
         needsDisplay = true
@@ -202,7 +294,7 @@ final class EditPDFView: PDFView {
     }
 }
 
-// Puts EditPDFView inside SwiftUI and keeps its settings in step with the buttons
+// Puts EditPDFView inside SwiftUI
 struct EditPDFViewer: NSViewRepresentable {
     let document: PDFDocument
     let controller: EditController
@@ -212,7 +304,8 @@ struct EditPDFViewer: NSViewRepresentable {
         view.autoScales = true
         view.displayMode = .singlePageContinuous
         view.document = document
-        view.onChange = { [weak controller] in controller?.refreshUndo() }
+        view.onChange = { [weak controller] in controller?.refresh() }
+        view.onTextRequest = { [weak controller] in controller?.textRequest = $0 }
         controller.view = view
         controller.push()
         return view
@@ -221,26 +314,36 @@ struct EditPDFViewer: NSViewRepresentable {
     func updateNSView(_ view: EditPDFView, context: Context) {}
 }
 
+// Keeps the buttons and the PDF view in step
 final class EditController: ObservableObject {
     weak var view: EditPDFView?
     @Published var tool = EditTool.scroll { didSet { push() } }
-    @Published var penColor = hex(0xD32F2F) { didSet { push() } }
+    @Published var color = hex(0xD32F2F) { didSet { push() } }
     @Published var penSize: Double = 3 { didSet { push() } }
     @Published var highlightColor = highlightColors[0] { didSet { push() } }
     @Published var highlightSize: Double = 4 { didSet { push() } }
+    @Published var textSize: Double = 4 { didSet { push() } }
+    @Published var shapeKind = ShapeKind.rectangle { didSet { push() } }
     @Published var canUndo = false
+    @Published var hasPicked = false
+    @Published var textRequest: TextRequest?
 
-    // Sends the chosen tool, colour and size to the PDF view
     func push() {
         guard let view else { return }
         view.tool = tool
-        view.penColor = penColor
+        view.color = color
         view.penSize = penSize
         view.highlightColor = highlightColor
         view.highlightSize = highlightSize
+        view.textSize = textSize
+        view.shapeKind = shapeKind
+        refresh()
     }
 
-    func refreshUndo() { canUndo = view?.canUndo ?? false }
+    func refresh() {
+        canUndo = view?.canUndo ?? false
+        hasPicked = view?.picked != nil
+    }
 }
 
 // MARK: - The Edit screen
@@ -271,12 +374,15 @@ struct EditView: View {
         .background(Theme.background)
         .navigationTitle("Edit: \(url.lastPathComponent)")
         .onAppear(perform: load)
+        .sheet(item: $controller.textRequest) { request in
+            TextSheet(request: request) { controller.textRequest = nil }
+        }
     }
 
     // Tool buttons, then the options for the chosen tool
     private var toolbar: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 4) {
+            HStack(spacing: 2) {
                 ForEach(EditTool.allCases) { tool in
                     ToolButton(icon: tool.icon, label: tool.label, selected: controller.tool == tool) {
                         controller.tool = tool
@@ -291,15 +397,32 @@ struct EditView: View {
             HStack(spacing: 14) {
                 switch controller.tool {
                 case .pen:
-                    ColorMenu(colors: penColors, selected: $controller.penColor)
-                    sizeSlider($controller.penSize)
+                    ColorMenu(colors: penColors, selected: $controller.color)
+                    sizeSlider("Thickness", $controller.penSize)
                 case .highlight:
                     ColorMenu(colors: highlightColors, selected: $controller.highlightColor)
-                    sizeSlider($controller.highlightSize)
+                    sizeSlider("Thickness", $controller.highlightSize)
+                case .text:
+                    ColorMenu(colors: penColors, selected: $controller.color)
+                    sizeSlider("Text size", $controller.textSize)
+                case .shape:
+                    Picker("", selection: $controller.shapeKind) {
+                        ForEach(ShapeKind.allCases) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 300)
+                    ColorMenu(colors: penColors, selected: $controller.color)
+                    sizeSlider("Thickness", $controller.penSize)
+                case .select where controller.hasPicked:
+                    Button { controller.view?.removePicked() } label: { Label("Delete", systemImage: "trash") }
                 default:
                     EmptyView()
                 }
-                Text(controller.tool.hint).font(.subheadline).foregroundStyle(Theme.textSecondary)
+                Text(controller.tool.hint)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(1)
                 Spacer()
             }
             .frame(height: 28)
@@ -308,10 +431,10 @@ struct EditView: View {
         .padding(.vertical, 10)
     }
 
-    private func sizeSlider(_ value: Binding<Double>) -> some View {
+    private func sizeSlider(_ label: String, _ value: Binding<Double>) -> some View {
         HStack(spacing: 6) {
-            Text("Thickness").font(.subheadline)
-            Slider(value: value, in: 1...12).frame(width: 140)
+            Text(label).font(.subheadline)
+            Slider(value: value, in: 1...12).frame(width: 120)
         }
     }
 
@@ -347,6 +470,7 @@ struct EditView: View {
         guard let document else { return }
         message = nil
         savedURL = nil
+        controller.view?.unpick()   // don't save the dashed frame
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.pdf]
         panel.nameFieldStringValue = "\(baseName(url.lastPathComponent))_edited.pdf"
@@ -356,6 +480,47 @@ struct EditView: View {
         } else {
             message = "Could not save the PDF. Try another folder."
         }
+    }
+}
+
+// Type new text, or change existing text (like Android's TextMarkDialog)
+struct TextSheet: View {
+    let request: TextRequest
+    let close: () -> Void
+    @State private var text: String
+
+    init(request: TextRequest, close: @escaping () -> Void) {
+        self.request = request
+        self.close = close
+        _text = State(initialValue: request.initial)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(request.isNew ? "Add text" : "Edit text").font(.title2.bold())
+            TextEditor(text: $text)
+                .font(.body)
+                .frame(width: 380, height: 110)
+                .padding(4)
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.outlineVariant))
+            HStack {
+                if !request.isNew {
+                    Button("Delete") { request.onDone(nil); close() }
+                }
+                Spacer()
+                Button("Cancel") { close() }.keyboardShortcut(.cancelAction)
+                Button("Done") {
+                    let typed = text.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
+                    close()
+                    request.onDone(typed)
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .tint(Theme.blue)
+                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(24)
     }
 }
 

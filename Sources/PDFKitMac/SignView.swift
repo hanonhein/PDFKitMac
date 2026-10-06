@@ -25,40 +25,27 @@ enum SignatureStore {
 
 // MARK: - The signature on the page
 
-// A picture placed on a page. It is drawn upright even when the page is turned.
-final class SignatureAnnotation: PDFAnnotation {
+// A picture placed on a page (signature, later also photos and stamps).
+// It is drawn upright even when the page is turned.
+final class SignatureAnnotation: MarkAnnotation {
     var image: NSImage?
-    var isPicked = false   // shows a dashed frame and corner dots while you move it
 
-    override func draw(with box: PDFDisplayBox, in context: CGContext) {
+    override func drawMark(in context: CGContext) {
         guard let image, let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
-        let turn = CGFloat(page?.rotation ?? 0) * .pi / 180
+        drawUpright(in: context) { rect in context.draw(cg, in: rect) }
+    }
 
-        context.saveGState()
-        // Apple gives us an unturned canvas; this lines it up with the page (turn and crop)
-        page?.transform(context, for: box)
-
-        context.saveGState()
-        // Turn around the middle, so the picture looks straight on a turned page
-        context.translateBy(x: bounds.midX, y: bounds.midY)
-        context.rotate(by: turn)
-        let upright = (page?.rotation ?? 0) % 180 == 0 ? bounds.size : CGSize(width: bounds.height, height: bounds.width)
-        let rect = CGRect(x: -upright.width / 2, y: -upright.height / 2, width: upright.width, height: upright.height)
-        context.draw(cg, in: rect)
-        context.restoreGState()
-
-        if isPicked {
-            context.setStrokeColor(NSColor.systemBlue.cgColor)
-            context.setLineWidth(1)
-            context.setLineDash(phase: 0, lengths: [4, 3])
-            context.stroke(bounds)
-            context.setFillColor(NSColor.systemBlue.cgColor)
-            for corner in [CGPoint(x: bounds.minX, y: bounds.minY), CGPoint(x: bounds.maxX, y: bounds.minY),
-                           CGPoint(x: bounds.minX, y: bounds.maxY), CGPoint(x: bounds.maxX, y: bounds.maxY)] {
-                context.fillEllipse(in: CGRect(x: corner.x - 4, y: corner.y - 4, width: 8, height: 8))
-            }
+    // Dashed frame plus a dot on each corner (drag a corner to resize)
+    override func drawPickedFrame(in context: CGContext) {
+        context.setStrokeColor(NSColor.systemBlue.cgColor)
+        context.setLineWidth(1)
+        context.setLineDash(phase: 0, lengths: [4, 3])
+        context.stroke(bounds)
+        context.setFillColor(NSColor.systemBlue.cgColor)
+        for corner in [CGPoint(x: bounds.minX, y: bounds.minY), CGPoint(x: bounds.maxX, y: bounds.minY),
+                       CGPoint(x: bounds.minX, y: bounds.maxY), CGPoint(x: bounds.maxX, y: bounds.maxY)] {
+            context.fillEllipse(in: CGRect(x: corner.x - 4, y: corner.y - 4, width: 8, height: 8))
         }
-        context.restoreGState()
     }
 }
 
@@ -201,7 +188,7 @@ func writeMarkedPdf(_ document: PDFDocument, to url: URL) -> Bool {
 
     for index in 0..<document.pageCount {
         guard let page = document.page(at: index) else { continue }
-        let added = page.annotations.filter { $0 is SignatureAnnotation || $0 is InkAnnotation }
+        let added = page.annotations.filter { $0 is MarkAnnotation }
         if added.isEmpty {
             if let copy = page.copy() as? PDFPage { output.insert(copy, at: output.pageCount) }
             continue
