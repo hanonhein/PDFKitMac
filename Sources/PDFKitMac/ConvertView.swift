@@ -32,7 +32,7 @@ enum ConvertFrom: String, CaseIterable, Identifiable {
         }
     }
 
-    var isReady: Bool { [.pdf, .images, .word, .excel, .rtf, .text].contains(self) }
+    var isReady: Bool { true }
 }
 
 enum PdfTarget: String, CaseIterable, Identifiable {
@@ -177,8 +177,7 @@ struct ConvertView: View {
                 case .pdf: PdfToFormat(target: target, path: $path)
                 case .images: ImagesToPdf(path: $path)
                 case .text: TextToPdf(path: $path)
-                case .rtf, .word, .excel: FileToPdf(kind: from, path: $path).id(from)
-                default: EmptyView()
+                case .rtf, .word, .excel, .powerpoint: FileToPdf(kind: from, path: $path).id(from)
                 }
             }
             .padding(24)
@@ -596,6 +595,7 @@ private struct FileToPdf: View {
         case .rtf: "Turns a Rich Text file (.rtf) into a PDF. Paragraphs, bold, italic and sizes are kept."
         case .word: "Turns a Word file (.docx or .doc) into a PDF. Headings, bold and italic, lists and page breaks are kept."
         case .excel: "Turns an Excel file (.xlsx) into a PDF. Every sheet becomes a table; wide sheets are fitted on sideways pages."
+        case .powerpoint: "Turns a PowerPoint file (.pptx) into a PDF, one page per slide. Charts and animations are left out."
         default: ""
         }
     }
@@ -605,6 +605,7 @@ private struct FileToPdf: View {
         case .rtf: [.rtf]
         case .word: [UTType(filenameExtension: "docx"), UTType(filenameExtension: "doc")].compactMap { $0 }
         case .excel: [UTType(filenameExtension: "xlsx")].compactMap { $0 }
+        case .powerpoint: [UTType(filenameExtension: "pptx")].compactMap { $0 }
         default: []
         }
     }
@@ -650,7 +651,9 @@ private struct FileToPdf: View {
         // Read first, so problems show before asking where to save
         var sheets: [Sheet] = []
         var content: NSAttributedString?
-        if kind == .excel {
+        if kind == .powerpoint {
+            // checked while saving (slides are drawn straight into the PDF)
+        } else if kind == .excel {
             do { sheets = try readExcel(file) } catch {
                 message = (error as? OfficeError)?.message ?? "This file could not be read."
                 return
@@ -666,7 +669,16 @@ private struct FileToPdf: View {
         panel.allowedContentTypes = [.pdf]
         panel.nameFieldStringValue = "\(baseName(file.lastPathComponent)).pdf"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        let ok = kind == .excel ? excelToPdf(sheets, to: url) : attributedTextToPdf(content!, to: url)
+        let ok: Bool
+        switch kind {
+        case .excel: ok = excelToPdf(sheets, to: url)
+        case .powerpoint:
+            do { ok = try powerPointToPdf(file, to: url) } catch {
+                message = (error as? OfficeError)?.message ?? "This file could not be read."
+                return
+            }
+        default: ok = attributedTextToPdf(content!, to: url)
+        }
         if ok {
             savedURL = url
         } else {
