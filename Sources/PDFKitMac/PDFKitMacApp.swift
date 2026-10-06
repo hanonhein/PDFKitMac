@@ -8,6 +8,8 @@ struct PDFKitMacApp: App {
         // Needed so the window comes to the front when started from Terminal
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
+        // Lets macOS offer "Scan Documents" from your iPhone (Continuity Camera)
+        NSApplication.shared.registerServicesMenuSendTypes([], returnTypes: [.pdf, .tiff, .png, NSPasteboard.PasteboardType("public.jpeg")])
     }
 
     var body: some Scene {
@@ -38,6 +40,7 @@ enum Screen: Hashable {
     case extractImages
     case ocr
     case fillForm
+    case scan
     case comingSoon(String)
 }
 
@@ -85,6 +88,8 @@ struct ContentView: View {
                         OcrView(path: $path)
                     case .fillForm:
                         FormView(path: $path)
+                    case .scan:
+                        ScanView(path: $path)
                     case .comingSoon(let name):
                         ComingSoonView(name: name)
                     }
