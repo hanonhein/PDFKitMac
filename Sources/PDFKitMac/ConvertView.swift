@@ -32,7 +32,7 @@ enum ConvertFrom: String, CaseIterable, Identifiable {
         }
     }
 
-    var isReady: Bool { [.pdf, .images, .rtf, .text].contains(self) }
+    var isReady: Bool { [.pdf, .images, .word, .rtf, .text].contains(self) }
 }
 
 enum PdfTarget: String, CaseIterable, Identifiable {
@@ -79,7 +79,7 @@ enum PdfTarget: String, CaseIterable, Identifiable {
         }
     }
 
-    var isReady: Bool { [.jpg, .png, .txt, .rtf, .html, .xml].contains(self) }
+    var isReady: Bool { [.word, .jpg, .png, .txt, .rtf, .html, .xml].contains(self) }
 
     var fileExtension: String {
         switch self {
@@ -177,7 +177,7 @@ struct ConvertView: View {
                 case .pdf: PdfToFormat(target: target, path: $path)
                 case .images: ImagesToPdf(path: $path)
                 case .text: TextToPdf(path: $path)
-                case .rtf: FileToPdf(kind: .rtf, path: $path).id(from)
+                case .rtf, .word: FileToPdf(kind: from, path: $path).id(from)
                 default: EmptyView()
                 }
             }
@@ -302,6 +302,18 @@ private struct PdfToFormat: View {
             let pages = readPages(file.document)
             if pages.allSatisfy({ $0.paragraphs().isEmpty }) {
                 message = "No words were found. If this is a scanned PDF, use \"Recognize text (OCR)\" first."
+                return
+            }
+            if target == .word {
+                let panel = NSSavePanel()
+                panel.allowedContentTypes = [UTType(filenameExtension: "docx") ?? .data]
+                panel.nameFieldStringValue = "\(base).docx"
+                guard panel.runModal() == .OK, let url = panel.url else { return }
+                if writeDocx(pagesToWord(pages), to: url) {
+                    saved = ("Saved \(url.lastPathComponent)", url, url)
+                } else {
+                    message = "Could not save the file. Try another folder."
+                }
                 return
             }
             let content: String
@@ -536,6 +548,7 @@ private struct FileToPdf: View {
     private var description: String {
         switch kind {
         case .rtf: "Turns a Rich Text file (.rtf) into a PDF. Paragraphs, bold, italic and sizes are kept."
+        case .word: "Turns a Word file (.docx or .doc) into a PDF. Headings, bold and italic, lists and page breaks are kept."
         default: ""
         }
     }
@@ -543,6 +556,7 @@ private struct FileToPdf: View {
     private var types: [UTType] {
         switch kind {
         case .rtf: [.rtf]
+        case .word: [UTType(filenameExtension: "docx"), UTType(filenameExtension: "doc")].compactMap { $0 }
         default: []
         }
     }
@@ -585,7 +599,7 @@ private struct FileToPdf: View {
         guard let file else { return }
         message = nil
         savedURL = nil
-        guard let content = readRtf(file) else {
+        guard let content = readStyledFile(file) else {
             message = "This file could not be read."
             return
         }

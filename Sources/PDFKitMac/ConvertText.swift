@@ -188,9 +188,34 @@ func attributedTextToPdf(_ text: NSAttributedString, to url: URL) -> Bool {
     return (try? (data as Data).write(to: url)) != nil
 }
 
-// Opens an RTF file with its bold, italic and sizes
-func readRtf(_ url: URL) -> NSAttributedString? {
+// Opens an RTF or Word file with its bold, italic, sizes and page breaks (the Mac reads these by itself)
+func readStyledFile(_ url: URL) -> NSAttributedString? {
     let hasAccess = url.startAccessingSecurityScopedResource()
     defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
-    return try? NSAttributedString(url: url, options: [.documentType: NSAttributedString.DocumentType.rtf], documentAttributes: nil)
+    let type: NSAttributedString.DocumentType
+    switch url.pathExtension.lowercased() {
+    case "docx": type = .officeOpenXML
+    case "doc": type = .docFormat
+    default: type = .rtf
+    }
+    return try? NSAttributedString(url: url, options: [.documentType: type], documentAttributes: nil)
+}
+
+// The words of the PDF as a Word document: one paragraph per paragraph, a page break between pages
+func pagesToWord(_ pages: [PageText]) -> NSAttributedString {
+    let style = NSMutableParagraphStyle()
+    style.paragraphSpacing = 8
+    let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .paragraphStyle: style]
+    let text = NSMutableAttributedString()
+    for (i, page) in pages.enumerated() {
+        if i > 0 { text.append(NSAttributedString(string: "\u{000C}", attributes: attributes)) }   // page break
+        for p in page.paragraphs() { text.append(NSAttributedString(string: p + "\n", attributes: attributes)) }
+    }
+    return text
+}
+
+func writeDocx(_ text: NSAttributedString, to url: URL) -> Bool {
+    guard let data = try? text.data(from: NSRange(location: 0, length: text.length),
+                                    documentAttributes: [.documentType: NSAttributedString.DocumentType.officeOpenXML]) else { return false }
+    return (try? data.write(to: url)) != nil
 }
