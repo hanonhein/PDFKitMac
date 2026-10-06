@@ -18,8 +18,12 @@ YAML
     EXTRA=(-vfsoverlay build/fix-clt.yaml -Xcc -ivfsoverlay -Xcc build/fix-clt.yaml)
 fi
 
-swiftc -O -parse-as-library -target arm64-apple-macos14.0 "${EXTRA[@]}" \
-    Sources/PDFKitMac/*.swift -o build/PDFKitMac
+# One app for both kinds of Mac: Apple chips (arm64) and Intel (x86_64)
+for ARCH in arm64 x86_64; do
+    swiftc -O -parse-as-library -target $ARCH-apple-macos14.0 "${EXTRA[@]}" \
+        Sources/PDFKitMac/*.swift -o build/PDFKitMac-$ARCH
+done
+lipo -create build/PDFKitMac-arm64 build/PDFKitMac-x86_64 -output build/PDFKitMac
 
 APP="build/PDF Kit.app"
 rm -rf "$APP"
