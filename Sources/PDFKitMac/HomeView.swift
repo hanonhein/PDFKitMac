@@ -101,6 +101,13 @@ struct HomeView: View {
                 Text("What would you like to do today?")
                     .foregroundStyle(Theme.textSecondary)
             }
+            Spacer()
+            // Settings, like the gear on Android
+            Button { path.append(.settings) } label: {
+                Image(systemName: "gearshape").font(.system(size: 20)).foregroundStyle(Theme.textSecondary)
+            }
+            .buttonStyle(.borderless)
+            .help("Settings")
         }
     }
 
@@ -110,8 +117,6 @@ struct HomeView: View {
             showPicker = true
         } else if let screen = feature.screen {
             path.append(screen)
-        } else {
-            path.append(.comingSoon(feature.title))
         }
     }
 }
