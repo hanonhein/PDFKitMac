@@ -27,7 +27,7 @@ enum SignatureStore {
 
 // A picture placed on a page (signature, later also photos and stamps).
 // It is drawn upright even when the page is turned.
-final class SignatureAnnotation: MarkAnnotation {
+final class ImageAnnotation: MarkAnnotation {
     var image: NSImage?
 
     override func drawMark(in context: CGContext) {
@@ -52,8 +52,8 @@ final class SignatureAnnotation: MarkAnnotation {
 // MARK: - The PDF view that lets you move and resize signatures
 
 final class SignPDFView: PDFView {
-    var onPickedChange: (SignatureAnnotation?) -> Void = { _ in }
-    private(set) var picked: SignatureAnnotation? {
+    var onPickedChange: (ImageAnnotation?) -> Void = { _ in }
+    private(set) var picked: ImageAnnotation? {
         didSet {
             oldValue?.isPicked = false
             picked?.isPicked = true
@@ -74,7 +74,7 @@ final class SignPDFView: PDFView {
         let grab = 10 / max(scaleFactor, 0.1)   // how close (in page units) counts as "on the corner"
 
         // Top-most signature under the mouse (a bit of extra room so the corners are easy to grab)
-        let hit = page.annotations.reversed().compactMap { $0 as? SignatureAnnotation }
+        let hit = page.annotations.reversed().compactMap { $0 as? ImageAnnotation }
             .first { $0.bounds.insetBy(dx: -grab, dy: -grab).contains(p) }
 
         guard let hit else { picked = nil; super.mouseDown(with: event); return }
@@ -124,16 +124,7 @@ final class SignPDFView: PDFView {
     // Puts a signature in the middle of the page you are looking at
     func place(_ image: NSImage) {
         guard let page = currentPage, image.size.width > 0 else { return }
-        let box = page.bounds(for: .cropBox)
-        let turned = page.rotation % 180 != 0
-        let seenWidth = turned ? box.height : box.width
-        let width = seenWidth * 0.3
-        let height = width * image.size.height / image.size.width
-        let size = turned ? CGSize(width: height, height: width) : CGSize(width: width, height: height)
-        let rect = CGRect(x: box.midX - size.width / 2, y: box.midY - size.height / 2, width: size.width, height: size.height)
-
-        let annotation = SignatureAnnotation(bounds: rect, forType: .stamp, withProperties: nil)
-        annotation.image = image
+        let annotation = makeImageMark(image, on: page, part: 0.3)
         page.addAnnotation(annotation)
         picked = annotation
         window?.makeFirstResponder(self)

@@ -238,3 +238,76 @@ final class TextAnnotation: MarkAnnotation {
         }
     }
 }
+
+// MARK: - Pictures (signatures, photos, stamps)
+
+// Makes a picture mark in the middle of the page, `part` of the seen page width wide
+func makeImageMark(_ image: NSImage, on page: PDFPage, part: CGFloat) -> ImageAnnotation {
+    let box = page.bounds(for: .cropBox)
+    let width = seenWidth(of: page) * part
+    let height = width * image.size.height / max(image.size.width, 1)
+    let size = page.rotation % 180 == 0 ? CGSize(width: width, height: height) : CGSize(width: height, height: width)
+    let rect = CGRect(x: box.midX - size.width / 2, y: box.midY - size.height / 2, width: size.width, height: size.height)
+    let mark = ImageAnnotation(bounds: rect, forType: .stamp, withProperties: nil)
+    mark.image = image
+    return mark
+}
+
+// Is page point p on one of the corners of this box?
+func isOnCorner(_ p: CGPoint, of b: CGRect, tolerance: CGFloat) -> Bool {
+    [CGPoint(x: b.minX, y: b.minY), CGPoint(x: b.maxX, y: b.minY), CGPoint(x: b.minX, y: b.maxY), CGPoint(x: b.maxX, y: b.maxY)]
+        .contains { hypot($0.x - p.x, $0.y - p.y) <= tolerance }
+}
+
+// A box made bigger or smaller from its middle, keeping its shape.
+// `startDistance` is how far from the middle the drag started; p is where the mouse is now.
+func resized(_ original: CGRect, startDistance: CGFloat, to p: CGPoint) -> CGRect {
+    let center = CGPoint(x: original.midX, y: original.midY)
+    let scale = max(hypot(p.x - center.x, p.y - center.y) / max(startDistance, 1), 0.1)
+    let minSide: CGFloat = 20
+    var size = CGSize(width: original.width * scale, height: original.height * scale)
+    if min(size.width, size.height) < minSide {
+        let fix = minSide / min(size.width, size.height)
+        size = CGSize(width: size.width * fix, height: size.height * fix)
+    }
+    return CGRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height)
+}
+
+// Big photos are made smaller (longest side 1600 pixels), so the saved PDF doesn't get huge
+func loadPicture(from url: URL) -> NSImage? {
+    let hasAccess = url.startAccessingSecurityScopedResource()
+    defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
+    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+          let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+              kCGImageSourceCreateThumbnailFromImageAlways: true,
+              kCGImageSourceCreateThumbnailWithTransform: true,   // photos from phones stay the right way up
+              kCGImageSourceThumbnailMaxPixelSize: 1600
+          ] as CFDictionary) else { return nil }
+    return NSImage(cgImage: cg, size: CGSize(width: cg.width, height: cg.height))
+}
+
+// Ready-made stamps: the word and its colour (same as Android)
+let stampList: [(text: String, color: UInt32)] = [
+    ("APPROVED", 0x2E7D32), ("DRAFT", 0x1565C0), ("CONFIDENTIAL", 0xC62828),
+    ("REVIEWED", 0x6A1B9A), ("PAID", 0x2E7D32), ("COPY", 0x455A64)
+]
+
+// Draws a stamp: a rounded frame with a bold word inside, on a see-through background (same sizes as Android)
+func makeStamp(_ text: String, color hexValue: UInt32) -> NSImage {
+    let color = NSColor(srgbRed: CGFloat((hexValue >> 16) & 0xFF) / 255, green: CGFloat((hexValue >> 8) & 0xFF) / 255,
+                        blue: CGFloat(hexValue & 0xFF) / 255, alpha: 1)
+    let font = NSFont.systemFont(ofSize: 120, weight: .bold)
+    let word = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color, .kern: 120 * 0.08])
+    let textSize = word.size()
+    let border: CGFloat = 14, padX: CGFloat = 60, padY: CGFloat = 36
+    let size = CGSize(width: ceil(textSize.width + padX * 2), height: ceil(textSize.height + padY * 2))
+
+    return NSImage(size: size, flipped: false) { rect in
+        color.setStroke()
+        let frame = NSBezierPath(roundedRect: rect.insetBy(dx: border / 2, dy: border / 2), xRadius: 36, yRadius: 36)
+        frame.lineWidth = border
+        frame.stroke()
+        word.draw(at: CGPoint(x: padX, y: (rect.height - textSize.height) / 2))
+        return true
+    }
+}

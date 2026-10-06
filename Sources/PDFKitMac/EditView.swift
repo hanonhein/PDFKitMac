@@ -34,7 +34,7 @@ enum EditTool: String, CaseIterable, Identifiable {
     var hint: String {
         switch self {
         case .scroll: "Scroll and zoom the pages. Pick a tool to edit."
-        case .select: "Click something you added to select it. Drag to move it. Delete key removes it."
+        case .select: "Click something you added to select it. Drag to move it, or a picture's corner to resize. Delete key removes it."
         case .pen: "Drag on the page to draw."
         case .highlight: "Drag over text to highlight it."
         case .eraser: "Click or drag over anything you added to remove it."
@@ -88,6 +88,7 @@ final class EditPDFView: PDFView {
     private var drawing: MarkAnnotation?   // the pen line or shape being drawn right now
     private var dragLast: CGPoint?          // Select: where the mouse was
     private var dragTotal = CGVector.zero   // Select: how far it moved, for undo
+    private var resizing: (original: CGRect, startDistance: CGFloat)?   // Select: dragging a picture's corner
     private var undoSteps: [() -> Void] = []
     var canUndo: Bool { !undoSteps.isEmpty }
 
@@ -159,9 +160,18 @@ final class EditPDFView: PDFView {
             }
 
         case .select:
+            // A picked picture's corner is just outside it, so check that first
+            if let image = picked as? ImageAnnotation, image.page == page, isOnCorner(p, of: image.bounds, tolerance: tolerance * 1.5) {
+                let b = image.bounds
+                resizing = (b, hypot(p.x - b.midX, p.y - b.midY))
+                return
+            }
             picked = topMark(at: p, on: page)
             if let text = picked as? TextAnnotation, event.clickCount == 2 {
                 editText(text)
+            } else if let image = picked as? ImageAnnotation, isOnCorner(p, of: image.bounds, tolerance: tolerance * 1.5) {
+                let b = image.bounds
+                resizing = (b, hypot(p.x - b.midX, p.y - b.midY))
             } else if picked != nil {
                 dragLast = p
                 dragTotal = .zero
@@ -184,6 +194,8 @@ final class EditPDFView: PDFView {
             shape.updateBounds()
         } else if tool == .eraser, let page = page(for: point, nearest: true) {
             erase(at: convert(point, to: page), on: page)
+        } else if tool == .select, let mark = picked, let page = mark.page, let resizing {
+            mark.bounds = resized(resizing.original, startDistance: resizing.startDistance, to: convert(point, to: page))
         } else if tool == .select, let mark = picked, let page = mark.page, let last = dragLast {
             let p = convert(point, to: page)
             mark.moveBy(dx: p.x - last.x, dy: p.y - last.y)
@@ -208,8 +220,13 @@ final class EditPDFView: PDFView {
             let back = dragTotal
             undoSteps.append { mark.moveBy(dx: -back.dx, dy: -back.dy) }
         }
+        if let mark = picked, let resizing, mark.bounds != resizing.original {
+            let original = resizing.original
+            undoSteps.append { mark.bounds = original }
+        }
         drawing = nil
         dragLast = nil
+        resizing = nil
         refresh()
         onChange()
     }
@@ -277,6 +294,17 @@ final class EditPDFView: PDFView {
         })
     }
 
+    // Puts a picture (signature, photo or stamp) in the middle of the page you are looking at, and selects it
+    func place(_ image: NSImage, part: CGFloat) {
+        guard let page = currentPage, image.size.width > 0 else { return }
+        let mark = makeImageMark(image, on: page, part: part)
+        page.addAnnotation(mark)
+        undoSteps.append { page.removeAnnotation(mark) }
+        picked = mark
+        window?.makeFirstResponder(self)
+        onChange()
+    }
+
     func undo() {
         guard let step = undoSteps.popLast() else { return }
         picked = nil
@@ -340,6 +368,12 @@ final class EditController: ObservableObject {
         refresh()
     }
 
+    // Switches to Select (so you can move it right away), then places the picture
+    func place(_ image: NSImage, part: CGFloat) {
+        tool = .select
+        view?.place(image, part: part)
+    }
+
     func refresh() {
         canUndo = view?.canUndo ?? false
         hasPicked = view?.picked != nil
@@ -356,6 +390,10 @@ struct EditView: View {
     @State private var loadError: String?
     @State private var savedURL: URL?
     @State private var message: String?
+    @State private var showPad = false
+    @State private var showSaved = false
+    @State private var showStamps = false
+    @State private var showPicturePicker = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -377,6 +415,40 @@ struct EditView: View {
         .sheet(item: $controller.textRequest) { request in
             TextSheet(request: request) { controller.textRequest = nil }
         }
+        .sheet(isPresented: $showPad) {
+            SignaturePad(
+                onDone: { image in
+                    SignatureStore.save(image)
+                    showPad = false
+                    controller.place(image, part: 0.3)
+                },
+                onCancel: { showPad = false }
+            )
+        }
+        .sheet(isPresented: $showSaved) {
+            if let saved = SignatureStore.load() {
+                SavedSignatureSheet(
+                    image: saved,
+                    onUse: { showSaved = false; controller.place(saved, part: 0.3) },
+                    onDrawNew: { showSaved = false; DispatchQueue.main.async { showPad = true } },
+                    onCancel: { showSaved = false }
+                )
+            }
+        }
+        .sheet(isPresented: $showStamps) {
+            StampSheet(
+                onPick: { image in showStamps = false; controller.place(image, part: 0.35) },
+                onCancel: { showStamps = false }
+            )
+        }
+        .fileImporter(isPresented: $showPicturePicker, allowedContentTypes: [.image]) { result in
+            guard case .success(let url) = result else { return }
+            if let image = loadPicture(from: url) {
+                controller.place(image, part: 0.5)
+            } else {
+                message = "Could not open that picture."
+            }
+        }
     }
 
     // Tool buttons, then the options for the chosen tool
@@ -388,6 +460,13 @@ struct EditView: View {
                         controller.tool = tool
                     }
                 }
+                Divider().frame(height: 36).padding(.horizontal, 6)
+                // These add something once, so they are buttons, not tools (like Android)
+                ToolButton(icon: "signature", label: "Sign", selected: false) {
+                    if SignatureStore.load() != nil { showSaved = true } else { showPad = true }
+                }
+                ToolButton(icon: "photo", label: "Picture", selected: false) { showPicturePicker = true }
+                ToolButton(icon: "seal", label: "Stamp", selected: false) { showStamps = true }
                 Spacer()
                 Button { controller.view?.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
                     .keyboardShortcut("z", modifiers: .command)
@@ -591,5 +670,39 @@ private extension NSColor {
     var brightness: CGFloat {
         let c = usingColorSpace(.sRGB) ?? self
         return 0.299 * c.redComponent + 0.587 * c.greenComponent + 0.114 * c.blueComponent
+    }
+}
+
+// Choose a ready-made stamp (like Android's StampPickerDialog)
+struct StampSheet: View {
+    let onPick: (NSImage) -> Void
+    let onCancel: () -> Void
+    private let stamps = stampList.map { makeStamp($0.text, color: $0.color) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Choose a stamp").font(.title2.bold())
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                ForEach(stamps.indices, id: \.self) { i in
+                    Button { onPick(stamps[i]) } label: {
+                        Image(nsImage: stamps[i])
+                            .resizable()
+                            .scaledToFit()
+                            .frame(height: 34)
+                            .frame(maxWidth: .infinity)
+                            .padding(12)
+                            .background(.white, in: RoundedRectangle(cornerRadius: 12))
+                            .contentShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel).keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(24)
+        .frame(width: 480)
     }
 }
