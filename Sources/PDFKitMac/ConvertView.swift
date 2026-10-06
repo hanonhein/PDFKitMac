@@ -32,7 +32,7 @@ enum ConvertFrom: String, CaseIterable, Identifiable {
         }
     }
 
-    var isReady: Bool { self == .pdf || self == .images }
+    var isReady: Bool { [.pdf, .images, .rtf, .text].contains(self) }
 }
 
 enum PdfTarget: String, CaseIterable, Identifiable {
@@ -79,7 +79,16 @@ enum PdfTarget: String, CaseIterable, Identifiable {
         }
     }
 
-    var isReady: Bool { self == .jpg || self == .png || self == .txt }
+    var isReady: Bool { [.jpg, .png, .txt, .rtf, .html, .xml].contains(self) }
+
+    var fileExtension: String {
+        switch self {
+        case .word: "docx"
+        case .excel: "xlsx"
+        case .powerpoint: "pptx"
+        default: rawValue
+        }
+    }
 }
 
 // MARK: - Converting
@@ -167,6 +176,8 @@ struct ConvertView: View {
                 switch from {
                 case .pdf: PdfToFormat(target: target, path: $path)
                 case .images: ImagesToPdf(path: $path)
+                case .text: TextToPdf(path: $path)
+                case .rtf: FileToPdf(kind: .rtf, path: $path).id(from)
                 default: EmptyView()
                 }
             }
@@ -286,18 +297,26 @@ private struct PdfToFormat: View {
         saved = nil
         let base = baseName(file.name)
 
-        if target == .txt {
-            let text = pdfText(file.document)
-            if text.isEmpty {
+        if target != .jpg && target != .png {
+            // Word-based files: the words of every page
+            let pages = readPages(file.document)
+            if pages.allSatisfy({ $0.paragraphs().isEmpty }) {
                 message = "No words were found. If this is a scanned PDF, use \"Recognize text (OCR)\" first."
                 return
             }
+            let content: String
+            switch target {
+            case .rtf: content = pagesToRtf(pages)
+            case .html: content = pagesToHtml(pages, title: base)
+            case .xml: content = pagesToXml(pages, title: base)
+            default: content = pdfText(file.document)
+            }
             let panel = NSSavePanel()
-            panel.allowedContentTypes = [.plainText]
-            panel.nameFieldStringValue = "\(base).txt"
+            panel.allowedContentTypes = [UTType(filenameExtension: target.fileExtension) ?? .data]
+            panel.nameFieldStringValue = "\(base).\(target.fileExtension)"
             guard panel.runModal() == .OK, let url = panel.url else { return }
             do {
-                try text.write(to: url, atomically: true, encoding: .utf8)
+                try content.write(to: url, atomically: true, encoding: .utf8)
                 saved = ("Saved \(url.lastPathComponent)", url, url)
             } catch {
                 message = "Could not save the file. Try another folder."
@@ -432,6 +451,149 @@ private struct ImagesToPdf: View {
         panel.nameFieldStringValue = images.count == 1 ? "\(baseName(images[0].name)).pdf" : "images.pdf"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         if imagesToPdf(images.map(\.image), to: url) {
+            savedURL = url
+        } else {
+            message = "Could not save the PDF. Try another folder."
+        }
+    }
+}
+
+// Text -> PDF: type or paste text, or open a .txt file
+private struct TextToPdf: View {
+    @Binding var path: [Screen]
+    @State private var text = ""
+    @State private var title = "text"
+    @State private var showPicker = false
+    @State private var message: String?
+    @State private var savedURL: URL?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Type or paste text, or open a .txt file. All languages are supported.")
+                .foregroundStyle(Theme.textSecondary)
+            Button { showPicker = true } label: { Label("Open a text file", systemImage: "doc.text") }
+            TextEditor(text: $text)
+                .font(.body)
+                .frame(minHeight: 260)
+                .padding(6)
+                .background(Theme.surfaceLow, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.outlineVariant))
+
+            if let message { Text(message).foregroundStyle(Theme.orange) }
+            if let savedURL {
+                SavedBanner(text: "Saved \(savedURL.lastPathComponent)", showURL: savedURL, openURL: savedURL) {
+                    path.append(.viewer($0))
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Create PDF") { create() }
+                    .controlSize(.large)
+                    .buttonStyle(.borderedProminent)
+                    .tint(Theme.blue)
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .fileImporter(isPresented: $showPicker, allowedContentTypes: [.plainText]) { result in
+            guard case .success(let url) = result else { return }
+            let hasAccess = url.startAccessingSecurityScopedResource()
+            defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
+            // Most text files are UTF-8; older ones are often Latin-1
+            if let read = (try? String(contentsOf: url, encoding: .utf8)) ?? (try? String(contentsOf: url, encoding: .isoLatin1)) {
+                text = read
+                title = baseName(url.lastPathComponent)
+                message = nil
+            } else {
+                message = "This file could not be read."
+            }
+        }
+    }
+
+    private func create() {
+        message = nil
+        savedURL = nil
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = "\(title.isEmpty ? "text" : title).pdf"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        if attributedTextToPdf(plainTextStyle(text), to: url) {
+            savedURL = url
+        } else {
+            message = "Could not save the PDF. Try another folder."
+        }
+    }
+}
+
+// A file (RTF now; Word, Excel, PowerPoint later) -> PDF
+private struct FileToPdf: View {
+    let kind: ConvertFrom
+    @Binding var path: [Screen]
+    @State private var file: URL?
+    @State private var showPicker = false
+    @State private var message: String?
+    @State private var savedURL: URL?
+
+    private var description: String {
+        switch kind {
+        case .rtf: "Turns a Rich Text file (.rtf) into a PDF. Paragraphs, bold, italic and sizes are kept."
+        default: ""
+        }
+    }
+
+    private var types: [UTType] {
+        switch kind {
+        case .rtf: [.rtf]
+        default: []
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(description).foregroundStyle(Theme.textSecondary)
+            HStack(spacing: 12) {
+                IconBadge(icon: kind.icon, color: .teal, size: 40)
+                Text(file?.lastPathComponent ?? "No \(kind.label) file chosen.")
+                    .foregroundStyle(file == nil ? Theme.textSecondary : Theme.text)
+                    .lineLimit(1)
+                Spacer()
+                Button(file == nil ? "Choose \(kind.label) file" : "Change") { showPicker = true }
+            }
+            .padding(14)
+            .background(Theme.surfaceLow, in: RoundedRectangle(cornerRadius: 20))
+
+            if let message { Text(message).foregroundStyle(Theme.orange) }
+            if let savedURL {
+                SavedBanner(text: "Saved \(savedURL.lastPathComponent)", showURL: savedURL, openURL: savedURL) {
+                    path.append(.viewer($0))
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Create PDF") { create() }
+                    .controlSize(.large)
+                    .buttonStyle(.borderedProminent)
+                    .tint(Theme.blue)
+                    .disabled(file == nil)
+            }
+        }
+        .fileImporter(isPresented: $showPicker, allowedContentTypes: types) { result in
+            if case .success(let url) = result { file = url; message = nil; savedURL = nil }
+        }
+    }
+
+    private func create() {
+        guard let file else { return }
+        message = nil
+        savedURL = nil
+        guard let content = readRtf(file) else {
+            message = "This file could not be read."
+            return
+        }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = "\(baseName(file.lastPathComponent)).pdf"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        if attributedTextToPdf(content, to: url) {
             savedURL = url
         } else {
             message = "Could not save the PDF. Try another folder."
