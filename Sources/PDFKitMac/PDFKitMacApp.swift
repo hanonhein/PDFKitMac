@@ -17,7 +17,7 @@ struct PDFKitMacApp: App {
     }
 
     var body: some Scene {
-        Window("PDF Kit", id: "main") {
+        Window("PDF Editor Kit", id: "main") {
             ContentView()
                 .frame(minWidth: 720, minHeight: 560)
                 .onAppear { themeMode.apply() }
@@ -31,7 +31,7 @@ struct PDFKitMacApp: App {
             }
         }
 
-        // PDF Kit > Settings… (⌘,)
+        // PDF Editor Kit > Settings… (⌘,)
         Settings {
             SettingsView(showsAbout: true)
                 .frame(width: 520, height: 560)
@@ -41,6 +41,17 @@ struct PDFKitMacApp: App {
 
 // Opens PDFs given by Finder: "Open With", or dropped on the Dock icon
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    // File > Import from iPhone or iPad: macOS fills this item with your iPhone's "Scan Documents"
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        DispatchQueue.main.async {
+            guard let file = NSApp.mainMenu?.items.first(where: { $0.title == "File" })?.submenu else { return }
+            let item = NSMenuItem(title: "Import from iPhone or iPad", action: nil, keyEquivalent: "")
+            item.identifier = NSMenuItem.importFromDeviceIdentifier
+            file.insertItem(.separator(), at: 1)
+            file.insertItem(item, at: 2)
+        }
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
         if let pdf = urls.first(where: { $0.pathExtension.lowercased() == "pdf" }) { Router.shared.open(pdf) }
     }

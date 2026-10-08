@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds "PDF Kit.app" into the build/ folder. Run: ./build-app.sh
+# Builds "PDF Editor Kit.app" into the build/ folder. Run: ./build-app.sh
 set -e
 cd "$(dirname "$0")"
 mkdir -p build
@@ -25,7 +25,7 @@ for ARCH in arm64 x86_64; do
 done
 lipo -create build/PDFKitMac-arm64 build/PDFKitMac-x86_64 -output build/PDFKitMac
 
-APP="build/PDF Kit.app"
+APP="build/PDF Editor Kit.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp build/PDFKitMac "$APP/Contents/MacOS/PDFKitMac"
@@ -45,8 +45,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>PDF Kit</string>
-    <key>CFBundleDisplayName</key><string>PDF Kit</string>
+    <key>CFBundleName</key><string>PDF Editor Kit</string>
+    <key>CFBundleDisplayName</key><string>PDF Editor Kit</string>
     <key>CFBundleIdentifier</key><string>com.devhein.pdfkit.mac</string>
     <key>CFBundleExecutable</key><string>PDFKitMac</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>

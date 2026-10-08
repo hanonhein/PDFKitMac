@@ -85,7 +85,7 @@ struct HomeView: View {
             .frame(maxWidth: .infinity)
         }
         .background(Theme.background)
-        .navigationTitle("PDF Kit")
+        .navigationTitle("PDF Editor Kit")
         .fileImporter(isPresented: $showPicker, allowedContentTypes: [.pdf]) { result in
             if case .success(let url) = result, let afterPick {
                 path.append(afterPick(url))
@@ -97,7 +97,7 @@ struct HomeView: View {
         HStack(spacing: 14) {
             AppLogo(size: 48)
             VStack(alignment: .leading, spacing: 2) {
-                Text("PDF Kit").font(.title.bold()).foregroundStyle(Theme.text)
+                Text("PDF Editor Kit").font(.title.bold()).foregroundStyle(Theme.text)
                 Text("What would you like to do today?")
                     .foregroundStyle(Theme.textSecondary)
             }
@@ -175,7 +175,7 @@ struct ToolRow: View {
     }
 }
 
-// The PDF Kit logo (same picture as Android, web and Windows), with rounded corners
+// The PDF Editor Kit logo (same picture as Android, web and Windows), with rounded corners
 struct AppLogo: View {
     let size: CGFloat
     private static let image = Bundle.main.url(forResource: "pdfkit-icon", withExtension: "png")

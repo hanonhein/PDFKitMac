@@ -191,9 +191,8 @@ enum NumberStyle: String, CaseIterable, Identifiable {
     }
 }
 
-// Writes the number on one page, upright as the page is seen (same sizes as Android)
-func drawPageNumber(_ text: String, at position: NumberPosition, in page: CGRect) {
-    let size = min(max(page.width * 0.022, 8), 14)
+// Writes the number on one page, upright as the page is seen (size 6-48 points, like Android)
+func drawPageNumber(_ text: String, at position: NumberPosition, size: CGFloat, in page: CGRect) {
     let string = NSAttributedString(string: text, attributes: [
         .font: NSFont.systemFont(ofSize: size), .foregroundColor: NSColor(white: 0.2, alpha: 1)
     ])
@@ -216,6 +215,7 @@ struct PageNumbersView: View {
     @State private var file: PickedPdf?
     @State private var position = NumberPosition.bottomCenter
     @State private var style = NumberStyle.number
+    @State private var fontSize = 12.0
     @State private var message: String?
     @State private var saved: URL?
 
@@ -239,6 +239,17 @@ struct PageNumbersView: View {
                     .pickerStyle(.radioGroup)
                     .labelsHidden()
                 }
+                OptionSection(title: "Size") {
+                    HStack {
+                        Slider(value: $fontSize, in: 6...48, step: 1)
+                        Text("\(Int(fontSize))").monospacedDigit().frame(width: 30, alignment: .trailing)
+                    }
+                    Text(style.text(1, of: 10))
+                        .font(.system(size: fontSize))
+                        .foregroundStyle(Theme.text)
+                        .frame(maxWidth: .infinity, minHeight: 60)
+                        .background(Theme.surfaceLow, in: RoundedRectangle(cornerRadius: 12))
+                }
             }
         }
     }
@@ -250,7 +261,7 @@ struct PageNumbersView: View {
         let total = file.document.pageCount
         let outcome = saveWithPanel("\(baseName(file.name))_numbered.pdf") { url in
             redrawPdf(file.document, to: url, password: file.password) { i, _, page in
-                drawPageNumber(style.text(i + 1, of: total), at: position, in: page)
+                drawPageNumber(style.text(i + 1, of: total), at: position, size: CGFloat(fontSize), in: page)
             }
         }
         switch outcome {

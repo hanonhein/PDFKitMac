@@ -1,8 +1,8 @@
-# PDF Kit for Mac
+# PDF Editor Kit for Mac
 
-The Mac version of PDF Kit: a free PDF editor with no sign-up and no ads.
+The Mac version of PDF Editor Kit: a free PDF editor with no sign-up and no ads.
 Your files stay on your Mac. Same name, colours, logo and tools as the Android,
-Windows and web versions (https://hanonhein.github.io/PDFkit/).
+Windows and web versions.
 
 Native app: Swift, SwiftUI and Apple's PDFKit, Vision and Core Image. No third-party code.
 
@@ -12,9 +12,9 @@ Needs macOS 14 or newer and the Xcode Command Line Tools (`xcode-select --instal
 The full Xcode app is not needed.
 
     ./build-app.sh
-    open "build/PDF Kit.app"
+    open "build/PDF Editor Kit.app"
 
-`build-app.sh` compiles `Sources/PDFKitMac/*.swift` with `swiftc`, makes `build/PDF Kit.app`
+`build-app.sh` compiles `Sources/PDFKitMac/*.swift` with `swiftc`, makes `build/PDF Editor Kit.app`
 (with the app icon from `Resources/pdfkit-icon.png`) and signs it for this Mac.
 
 ## Tools

@@ -137,11 +137,6 @@ struct OcrView: View {
         message = nil
         info = nil
         saved = nil
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.pdf]
-        panel.nameFieldStringValue = "\(baseName(file.name))_ocr.pdf"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-
         let document = file.document
         let chosen = language == "auto" ? nil : language
         busy = "Starting…"
@@ -157,26 +152,35 @@ struct OcrView: View {
                 guard let image = renderPage(page, width: 2400) else { continue }
                 wordsPerPage[i] = await Task.detached { recognizeWords(in: image, language: chosen) }.value
             }
+            let count = wordsPerPage.values.reduce(0) { $0 + $1.count }
+            if skipped == document.pageCount {
+                busy = nil
+                info = "All pages already had text, so nothing needed reading."
+                return
+            }
+            if count == 0 {
+                busy = nil
+                message = "There is no text in this PDF."
+                return
+            }
+            busy = nil
+            let panel = NSSavePanel()
+            panel.allowedContentTypes = [.pdf]
+            panel.nameFieldStringValue = "\(baseName(file.name))_ocr.pdf"
+            guard panel.runModal() == .OK, let url = panel.url else { return }
             busy = "Saving…"
             await Task.yield()
             let ok = redrawPdf(document, to: url, password: file.password) { i, context, page in
                 if let words = wordsPerPage[i] { drawInvisibleWords(words, in: page, context: context) }
             }
             busy = nil
-            let count = wordsPerPage.values.reduce(0) { $0 + $1.count }
             if !ok {
                 message = "Could not save the PDF. Try another folder."
                 return
             }
             saved = url
-            if skipped == document.pageCount {
-                info = "All pages already had text, so nothing needed reading."
-            } else if count == 0 {
-                info = "No words were found. The pages may be too blurry, or in a language Apple's text recognition doesn't know."
-            } else {
-                info = "\(count) words found. You can now search and copy the text."
-                    + (skipped > 0 ? " \(skipped) page\(skipped == 1 ? "" : "s") already had text." : "")
-            }
+            info = "\(count) words found. You can now search and copy the text."
+                + (skipped > 0 ? " \(skipped) page\(skipped == 1 ? "" : "s") already had text." : "")
         }
     }
 }

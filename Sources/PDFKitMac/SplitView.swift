@@ -2,22 +2,22 @@ import SwiftUI
 import PDFKit
 
 enum SplitMode: String, CaseIterable, Identifiable {
-    case everyPage, everyN, ranges
+    case equalParts, ranges, everyPage
     var id: Self { self }
 
     var label: String {
         switch self {
-        case .everyPage: "Every page"
-        case .everyN: "Every few pages"
-        case .ranges: "Custom ranges"
+        case .equalParts: "Split into equal parts"
+        case .ranges: "Custom page ranges"
+        case .everyPage: "One file per page"
         }
     }
 
     var description: String {
         switch self {
-        case .everyPage: "Each page becomes its own PDF"
-        case .everyN: "For example, every 2 pages become one PDF"
+        case .equalParts: "Choose how many parts. Extra pages go to the first parts"
         case .ranges: "You type which pages go together"
+        case .everyPage: "Each page becomes its own PDF"
         }
     }
 }
@@ -25,7 +25,7 @@ enum SplitMode: String, CaseIterable, Identifiable {
 // Cut one PDF into several smaller PDFs
 struct SplitView: View {
     @State private var file: PickedPdf?
-    @State private var mode = SplitMode.everyPage
+    @State private var mode = SplitMode.equalParts
     @State private var everyText = "2"
     @State private var rangesText = ""
     @State private var showPicker = false
@@ -40,9 +40,15 @@ struct SplitView: View {
         switch mode {
         case .everyPage:
             return (0..<count).map { $0...$0 }
-        case .everyN:
-            guard let n = Int(everyText), n >= 1 else { return nil }
-            return stride(from: 0, to: count, by: n).map { $0...min($0 + n - 1, count - 1) }
+        case .equalParts:
+            // 7 pages in 3 parts = 1-3, 4-5, 6-7 (extra pages go to the first parts)
+            guard let n = Int(everyText), n >= 1, n <= count else { return nil }
+            var start = 0
+            return (0..<n).map { i in
+                let size = count / n + (i < count % n ? 1 : 0)
+                defer { start += size }
+                return start...(start + size - 1)
+            }
         case .ranges:
             return parseRanges(rangesText, pageCount: count)
         }
@@ -50,7 +56,7 @@ struct SplitView: View {
 
     private var actionLabel: String {
         if file == nil { return "Choose a PDF first" }
-        guard let parts else { return mode == .ranges ? "Type the page ranges" : "Type how many pages" }
+        guard let parts else { return mode == .ranges ? "Type the page ranges" : "Type how many parts" }
         return parts.count == 1 ? "Split into 1 file" : "Split into \(parts.count) files"
     }
 
@@ -78,12 +84,12 @@ struct SplitView: View {
                         .labelsHidden()
                     }
 
-                    if mode == .everyN {
-                        section("Pages in each PDF") {
-                            TextField("Number of pages, like 2", text: $everyText)
+                    if mode == .equalParts {
+                        section("Number of parts") {
+                            TextField("How many parts, like 3", text: $everyText)
                                 .textFieldStyle(.roundedBorder)
                                 .frame(maxWidth: 200)
-                            hint(parts == nil ? "Type a number, like 2" : "Makes \(parts?.count ?? 0) PDFs", isError: parts == nil)
+                            hint(parts == nil ? "Type a number from 1 to \(file?.document.pageCount ?? 0)" : "Makes \(parts?.count ?? 0) PDFs", isError: parts == nil)
                         }
                     }
 

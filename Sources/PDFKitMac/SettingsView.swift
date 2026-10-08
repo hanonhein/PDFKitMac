@@ -41,7 +41,7 @@ struct SettingsView: View {
                         HStack(spacing: 14) {
                             IconBadge(icon: "info.circle", color: .blue, size: 40)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("About PDF Kit").foregroundStyle(Theme.text)
+                                Text("About PDF Editor Kit").foregroundStyle(Theme.text)
                                 Text("Version, privacy and other versions").font(.subheadline).foregroundStyle(Theme.textSecondary)
                             }
                             Spacer()
@@ -81,7 +81,7 @@ struct AboutContent: View {
         VStack(spacing: 16) {
             VStack(spacing: 6) {
                 AppLogo(size: 72)
-                Text("PDF Kit").font(.title2.bold()).foregroundStyle(Theme.text)
+                Text("PDF Editor Kit").font(.title2.bold()).foregroundStyle(Theme.text)
                 Text("Version \(appVersion) for Mac").foregroundStyle(Theme.textSecondary)
             }
             .frame(maxWidth: .infinity)
@@ -89,13 +89,12 @@ struct AboutContent: View {
             OptionSection(title: "Your privacy") {
                 promise("wifi.slash", "Works offline", "Every tool works without internet.")
                 promise("lock", "Your files stay on your Mac", "Your PDFs are never uploaded.")
-                promise("gift", "Free, no ads, no sign-up", "PDF Kit for Mac is free to use.")
+                promise("gift", "Free, no ads, no sign-up", "PDF Editor Kit for Mac is free to use.")
             }
 
             OptionSection(title: "Also on") {
                 Text("Android, Windows and the web: the same app with the same tools.")
                     .foregroundStyle(Theme.textSecondary)
-                Link("PDF Kit for the web", destination: URL(string: "https://hanonhein.github.io/PDFkit/")!)
                 Link("Website", destination: URL(string: "https://hanonhein.github.io/")!)
             }
 
