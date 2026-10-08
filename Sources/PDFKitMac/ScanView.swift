@@ -3,90 +3,7 @@ import PDFKit
 import CoreImage
 import UniformTypeIdentifiers
 
-// Scan document: scan paper with your iPhone (Apple's "Continuity Camera"), or add photos,
-// then save them as a PDF, optionally black & white and searchable (like Android ScanScreen.kt).
-
-// MARK: - The "Scan with iPhone" button
-
-// macOS shows your iPhone's "Scan Documents" in a menu item with a special id, and hands the
-// scan to whoever is ready to receive pictures. This button is that receiver.
-final class ContinuityScanButton: NSButton, NSServicesMenuRequestor {
-    var onScan: ([CGImage]) -> Void = { _ in }
-
-    override var acceptsFirstResponder: Bool { true }
-
-    override func mouseDown(with event: NSEvent) {
-        let became = window?.makeFirstResponder(self) ?? false
-        scanLog("button clicked, ready to receive: \(became)")
-        let menu = NSMenu()
-        let item = NSMenuItem(title: "Import from iPhone or iPad", action: nil, keyEquivalent: "")
-        item.identifier = NSMenuItem.importFromDeviceIdentifier   // macOS fills in "Scan Documents" here
-        menu.addItem(item)
-        NSMenu.popUpContextMenu(menu, with: event, for: self)   // a "context menu": macOS fills in the iPhone item
-    }
-
-    // "Yes, I can take pictures and PDFs" (any picture type the iPhone may send)
-    override func validRequestor(forSendType sendType: NSPasteboard.PasteboardType?, returnType: NSPasteboard.PasteboardType?) -> Any? {
-        scanLog("asked: send \(sendType?.rawValue ?? "none"), return \(returnType?.rawValue ?? "none")")
-        if sendType == nil, let returnType, let type = UTType(returnType.rawValue) ?? UTType(filenameExtension: returnType.rawValue),
-           type.conforms(to: .image) || type.conforms(to: .pdf) {
-            return self
-        }
-        return super.validRequestor(forSendType: sendType, returnType: returnType)
-    }
-
-    func writeSelection(to pboard: NSPasteboard, types: [NSPasteboard.PasteboardType]) -> Bool { false }
-
-    // The scan arrives here: a PDF (several pages) or a picture
-    func readSelection(from pboard: NSPasteboard) -> Bool {
-        scanLog("scan arrived with types: \(pboard.types?.map(\.rawValue).joined(separator: ", ") ?? "none")")
-        let pages = scanPages(from: pboard)
-        guard !pages.isEmpty else { return false }
-        DispatchQueue.main.async { self.onScan(pages) }
-        return true
-    }
-}
-
-// Turns what the iPhone sent (a PDF with several pages, or one picture) into page pictures
-func scanPages(from pboard: NSPasteboard) -> [CGImage] {
-    var pages: [CGImage] = []
-    if let data = pboard.data(forType: .pdf), let pdf = PDFDocument(data: data) {
-        for i in 0..<pdf.pageCount {
-            if let page = pdf.page(at: i), let image = renderPage(page, width: 2000) { pages.append(image) }
-        }
-    } else if let image = NSImage(pasteboard: pboard), let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-        pages.append(cg)
-    }
-    return pages
-}
-
-struct ScanWithIPhoneButton: NSViewRepresentable {
-    let onScan: ([CGImage]) -> Void
-
-    func makeNSView(context: Context) -> ContinuityScanButton {
-        let button = ContinuityScanButton(title: "Scan with iPhone", target: nil, action: nil)
-        button.image = NSImage(systemSymbolName: "iphone", accessibilityDescription: nil)
-        button.imagePosition = .imageLeading
-        button.bezelStyle = .rounded
-        button.controlSize = .large
-        return button
-    }
-
-    func updateNSView(_ button: ContinuityScanButton, context: Context) {
-        button.onScan = onScan
-    }
-}
-
-// A small log to find scanning problems: ~/Library/Logs/PDFKit-scan.log
-func scanLog(_ line: String) {
-    let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/PDFKit-scan.log")
-    let text = "\(Date()): \(line)\n"
-    if let handle = try? FileHandle(forWritingTo: url) {
-        handle.seekToEndOfFile(); handle.write(Data(text.utf8)); try? handle.close()
-    } else {
-        try? text.write(to: url, atomically: true, encoding: .utf8)
-    }
-}
+// Scan document: add photos of paper, then save them as a PDF, optionally black & white and searchable (like Android ScanScreen.kt).
 
 // MARK: - Black & white
 
@@ -128,19 +45,12 @@ struct ScanView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Scan paper with your iPhone's camera: it finds the edges and straightens the page. Or add photos you already have.")
+                Text("Turn photos of paper into a PDF. Make them black and white like a scanner, and make the text searchable.")
                     .foregroundStyle(Theme.textSecondary)
                 HStack(spacing: 12) {
-                    ScanWithIPhoneButton { images in
-                        pages += images.map { ScannedPage(image: $0) }
-                        saved = nil
-                    }
-                    .fixedSize()
                     Button { showPicturePicker = true } label: { Label("From pictures", systemImage: "photo.on.rectangle") }
                         .controlSize(.large)
                 }
-                Text("Your iPhone needs the same Apple ID as this Mac, with Wi-Fi and Bluetooth on. Choose \"Scan Documents\" under your iPhone's name.")
-                    .font(.caption).foregroundStyle(Theme.textSecondary)
 
                 if !pages.isEmpty {
                     Text(pages.count == 1 ? "1 page" : "\(pages.count) pages").font(.subheadline.weight(.semibold))
@@ -195,14 +105,7 @@ struct ScanView: View {
         }
         .background(Theme.background)
         .navigationTitle("Scan document")
-        .onAppear {
-            // so File > Import from iPhone or iPad can hand the scan to this screen
-            Router.shared.scanReceiver = { images in
-                pages += images.map { ScannedPage(image: $0) }
-                saved = nil
-            }
-        }
-        .onDisappear { Router.shared.scanReceiver = nil }
+
         .fileImporter(isPresented: $showPicturePicker, allowedContentTypes: [.image], allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result else { return }
             for url in urls {

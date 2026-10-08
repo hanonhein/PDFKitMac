@@ -21,6 +21,6 @@ The full Xcode app is not needed.
 
 View, Edit (pen, highlighter, text, shapes, signature, picture, stamp), Convert
 (PDF to and from Word, Excel, PowerPoint, RTF, text, images, HTML, XML), Merge, Split,
-Page tools (rotate, reorder, delete, duplicate, crop, extract), Sign, Scan with iPhone,
+Page tools (rotate, reorder, delete, duplicate, crop, extract), Sign, Scan document (from photos),
 Recognize text (OCR), PDF to text, Extract images, Fill form, Protect, Remove password,
 Watermark, Page numbers, PDF info, Compress, Grayscale.

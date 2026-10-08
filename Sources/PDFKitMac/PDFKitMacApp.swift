@@ -12,8 +12,6 @@ struct PDFKitMacApp: App {
         // Needed so the window comes to the front when started from Terminal
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
-        // Lets macOS offer "Scan Documents" from your iPhone (Continuity Camera)
-        NSApplication.shared.registerServicesMenuSendTypes([], returnTypes: [.pdf, .tiff, .png, NSPasteboard.PasteboardType("public.jpeg")])
     }
 
     var body: some Scene {
@@ -40,50 +38,9 @@ struct PDFKitMacApp: App {
 }
 
 // Opens PDFs given by Finder: "Open With", or dropped on the Dock icon
-final class AppDelegate: NSObject, NSApplicationDelegate, NSServicesMenuRequestor {
-    // File > Import from iPhone or iPad: macOS fills this item with your iPhone's "Scan Documents".
-    // It is only clickable on the Scan screen, because only that screen can receive a scan.
-    private var importItem: NSMenuItem?
-
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        // SwiftUI builds the menus a moment after start (and may rebuild them), so check again and again
-        NotificationCenter.default.addObserver(forName: NSApplication.didUpdateNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.addImportItemIfMissing()
-        }
-    }
-
-    private func addImportItemIfMissing() {
-        // the File menu is the second one (after the app menu), whatever the Mac's language is
-        guard let items = NSApp.mainMenu?.items, items.count > 1, let file = items[1].submenu else { return }
-        if let item = importItem, file.items.contains(item) { return }
-        let item = NSMenuItem(title: "Import from iPhone or iPad", action: nil, keyEquivalent: "")
-        item.identifier = NSMenuItem.importFromDeviceIdentifier
-        file.addItem(.separator())
-        file.addItem(item)
-        importItem = item
-    }
-
-    // macOS asks the app "who can take a picture or PDF?". Answer: us, but only while the Scan screen is open.
-    @objc func validRequestor(forSendType sendType: NSPasteboard.PasteboardType?, returnType: NSPasteboard.PasteboardType?) -> Any? {
-        scanLog("app asked: send \(sendType?.rawValue ?? "none"), return \(returnType?.rawValue ?? "none")")
-        guard Router.shared.scanReceiver != nil, sendType == nil, let returnType,
-              let type = UTType(returnType.rawValue) ?? UTType(filenameExtension: returnType.rawValue),
-              type.conforms(to: .image) || type.conforms(to: .pdf) else { return nil }
-        return self
-    }
-
+final class AppDelegate: NSObject, NSApplicationDelegate {
     func application(_ application: NSApplication, open urls: [URL]) {
         if let pdf = urls.first(where: { $0.pathExtension.lowercased() == "pdf" }) { Router.shared.open(pdf) }
-    }
-
-    func writeSelection(to pboard: NSPasteboard, types: [NSPasteboard.PasteboardType]) -> Bool { false }
-
-    // The scan arrives here from the File menu
-    func readSelection(from pboard: NSPasteboard) -> Bool {
-        let pages = scanPages(from: pboard)
-        guard !pages.isEmpty, let receive = Router.shared.scanReceiver else { return false }
-        DispatchQueue.main.async { receive(pages) }
-        return true
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
@@ -118,8 +75,6 @@ enum Screen: Hashable {
 final class Router: ObservableObject {
     static let shared = Router()
     @Published var path: [Screen] = []
-    // Set while the Scan screen is open: where a scan from the iPhone goes
-    var scanReceiver: (([CGImage]) -> Void)?
 
     func open(_ url: URL) {
         path = [.viewer(url)]
