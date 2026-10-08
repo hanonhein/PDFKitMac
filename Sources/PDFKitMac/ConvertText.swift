@@ -212,6 +212,7 @@ func readStyledFile(_ url: URL) -> NSAttributedString? {
 // Word file ourselves and give them back to the cells, in the same order.
 func restoreCellColors(from docx: URL, in text: NSMutableAttributedString) {
     // A .docx is a zip; the text is in word/document.xml
+    if unpackedSize(of: docx) > 1_000_000_000 { return }
     let unzip = Process()
     unzip.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
     unzip.arguments = ["-p", docx.path, "word/document.xml"]

@@ -8,6 +8,21 @@ struct OfficeError: Error {
     init(_ message: String) { self.message = message }
 }
 
+// The total size of everything inside a zip, read from `unzip -l` (its last line: "  12345  7 files")
+func unpackedSize(of zip: URL) -> Int {
+    let list = Process()
+    list.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+    list.arguments = ["-l", zip.path]
+    let pipe = Pipe()
+    list.standardOutput = pipe
+    list.standardError = FileHandle.nullDevice
+    guard (try? list.run()) != nil else { return 0 }
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    list.waitUntilExit()
+    let lastLine = String(decoding: data, as: UTF8.self).split(separator: "\n").last ?? ""
+    return Int(lastLine.split(separator: " ").first ?? "") ?? 0
+}
+
 final class OfficeZip {
     private let folder: URL   // where the zip was unpacked
 
@@ -19,6 +34,9 @@ final class OfficeZip {
 
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
         if size > 200 * 1024 * 1024 { throw OfficeError("This file is too big to convert.") }
+
+        // A "zip bomb" is a tiny file that unpacks to something huge. Look at the unpacked size first.
+        if unpackedSize(of: url) > 1_000_000_000 { throw OfficeError("This file is too big to convert.") }
 
         folder = FileManager.default.temporaryDirectory.appendingPathComponent("office-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
