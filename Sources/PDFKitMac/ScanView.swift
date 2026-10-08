@@ -22,7 +22,7 @@ final class ContinuityScanButton: NSButton, NSServicesMenuRequestor {
         let item = NSMenuItem(title: "Import from iPhone or iPad", action: nil, keyEquivalent: "")
         item.identifier = NSMenuItem.importFromDeviceIdentifier   // macOS fills in "Scan Documents" here
         menu.addItem(item)
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 4), in: self)
+        NSMenu.popUpContextMenu(menu, with: event, for: self)   // a "context menu": macOS fills in the iPhone item
     }
 
     // "Yes, I can take pictures and PDFs" (any picture type the iPhone may send)
@@ -40,18 +40,24 @@ final class ContinuityScanButton: NSButton, NSServicesMenuRequestor {
     // The scan arrives here: a PDF (several pages) or a picture
     func readSelection(from pboard: NSPasteboard) -> Bool {
         scanLog("scan arrived with types: \(pboard.types?.map(\.rawValue).joined(separator: ", ") ?? "none")")
-        var pages: [CGImage] = []
-        if let data = pboard.data(forType: .pdf), let pdf = PDFDocument(data: data) {
-            for i in 0..<pdf.pageCount {
-                if let page = pdf.page(at: i), let image = renderPage(page, width: 2000) { pages.append(image) }
-            }
-        } else if let image = NSImage(pasteboard: pboard), let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-            pages.append(cg)
-        }
+        let pages = scanPages(from: pboard)
         guard !pages.isEmpty else { return false }
         DispatchQueue.main.async { self.onScan(pages) }
         return true
     }
+}
+
+// Turns what the iPhone sent (a PDF with several pages, or one picture) into page pictures
+func scanPages(from pboard: NSPasteboard) -> [CGImage] {
+    var pages: [CGImage] = []
+    if let data = pboard.data(forType: .pdf), let pdf = PDFDocument(data: data) {
+        for i in 0..<pdf.pageCount {
+            if let page = pdf.page(at: i), let image = renderPage(page, width: 2000) { pages.append(image) }
+        }
+    } else if let image = NSImage(pasteboard: pboard), let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+        pages.append(cg)
+    }
+    return pages
 }
 
 struct ScanWithIPhoneButton: NSViewRepresentable {
@@ -189,6 +195,14 @@ struct ScanView: View {
         }
         .background(Theme.background)
         .navigationTitle("Scan document")
+        .onAppear {
+            // so File > Import from iPhone or iPad can hand the scan to this screen
+            Router.shared.scanReceiver = { images in
+                pages += images.map { ScannedPage(image: $0) }
+                saved = nil
+            }
+        }
+        .onDisappear { Router.shared.scanReceiver = nil }
         .fileImporter(isPresented: $showPicturePicker, allowedContentTypes: [.image], allowsMultipleSelection: true) { result in
             guard case .success(let urls) = result else { return }
             for url in urls {
